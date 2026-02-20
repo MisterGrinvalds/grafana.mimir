@@ -108,6 +108,11 @@ func (j *baseTrackedJob) Epoch() int64 {
 	return j.epoch
 }
 
+type CompactionJob struct {
+	blocks  [][]byte // empty indicates a planning job
+	isSplit bool
+}
+
 type TrackedCompactionJob struct {
 	baseTrackedJob
 	value *CompactionJob
@@ -231,7 +236,7 @@ func deserializeJob(k []byte, v []byte) (TrackedJob, error) {
 	return deserializeCompactionJob(k, v)
 }
 
-func deserializePlanJob(content []byte) (TrackedJob, error) {
+func deserializePlanJob(content []byte) (*TrackedPlanJob, error) {
 	var info compactorschedulerpb.StoredJobInfo
 	if err := info.Unmarshal(content); err != nil {
 		return nil, err

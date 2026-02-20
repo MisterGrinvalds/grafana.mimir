@@ -13,11 +13,11 @@ import (
 
 	"github.com/benbjohnson/clock"
 
+	"github.com/grafana/dskit/multierror"
 	"github.com/grafana/mimir/pkg/compactor/scheduler/compactorschedulerpb"
 )
 
 // JobTracker tracks pending, active, and (temporarily) complete jobs for tenants.
-// TODO: Some kind of feedback mechanism so the Spawner can know if a submitted plan job failed or completed
 type JobTracker struct {
 	persister JobPersister
 	tenant    string
@@ -31,6 +31,7 @@ type JobTracker struct {
 	active                 *list.List
 	isPlanJobLeased        bool                     // we track blocks from completed jobs while a plan job is leased
 	incompleteJobs         map[string]*list.Element // all incomplete jobs will be in this map, element is in one and only one of pending or active
+	completePlanTime       time.Time                // time of completed plan job. IsZero is true if there is a pending job or planning has never been completed
 	completeCompactionJobs []*TrackedCompactionJob  // tracked in order to reject jobs that may be from a stale planning view.
 }
 
@@ -51,25 +52,29 @@ func NewJobTracker(jobPersister JobPersister, tenant string, clock clock.Clock, 
 	return jt
 }
 
-func (jt *JobTracker) recoverFrom(jobs []TrackedJob) {
+func (jt *JobTracker) recoverFrom(compactionJobs []*TrackedCompactionJob, planJob *TrackedPlanJob) {
 	jt.mtx.Lock()
 	defer jt.mtx.Unlock()
 
-	leased := make([]TrackedJob, 0, len(jobs))
-	pending := make([]TrackedJob, 0, len(jobs))
-	for _, job := range jobs {
+	leased := make([]TrackedJob, 0, len(compactionJobs)+1)
+	pending := make([]TrackedJob, 0, len(compactionJobs)+1)
+
+	if planJob != nil {
+		if planJob.IsLeased() {
+			leased = append(leased, planJob)
+			jt.isPlanJobLeased = true
+		} else if planJob.IsComplete() {
+			jt.completePlanTime = planJob.StatusTime()
+		} else {
+			pending = append(pending, planJob)
+		}
+	}
+
+	for _, job := range compactionJobs {
 		if job.IsLeased() {
-			if job.ID() == planJobId {
-				jt.isPlanJobLeased = true
-			}
 			leased = append(leased, job)
 		} else if job.IsComplete() {
-			compactionJob, ok := job.(*TrackedCompactionJob)
-			if !ok {
-				// Only compaction jobs are expected to be persisted as complete
-				continue
-			}
-			jt.completeCompactionJobs = append(jt.completeCompactionJobs, compactionJob)
+			jt.completeCompactionJobs = append(jt.completeCompactionJobs, job)
 		} else {
 			pending = append(pending, job)
 		}
@@ -184,14 +189,24 @@ func (jt *JobTracker) Remove(id string, epoch int64, complete bool) (removed boo
 	return true, jt.isPendingEmpty(), nil
 }
 
-// ExpireLeases iterates through all the active jobs known by the JobTracker to find ones that have expired leases.
-// If a job has an expired lease and has been active under the maximum number of times, it is returned to the front of the queue
-// Otherwise a job with an expired lease will be removed from the tracker.
-func (jt *JobTracker) ExpireLeases(leaseDuration time.Duration) (bool, error) {
+func (jt *JobTracker) Maintenance(leaseDuration time.Duration, enforceLeaseExpiration bool, planningInterval time.Duration, compactionWaitPeriod time.Duration) (bool, error) {
 	jt.mtx.Lock()
 	defer jt.mtx.Unlock()
 
 	now := jt.clock.Now()
+	if enforceLeaseExpiration {
+		revived, expireErr := jt.expireLeases(leaseDuration, now)
+		addedPlan, planErr := jt.plan(planningInterval, compactionWaitPeriod, now)
+		return (revived || addedPlan), multierror.New(expireErr, planErr).Err()
+	}
+	return jt.plan(planningInterval, compactionWaitPeriod, now)
+}
+
+// expireLeases iterates through all the active jobs known by the JobTracker to find ones that have expired leases.
+// If a job has an expired lease and has been active under the maximum number of times, it is returned to the front of the queue
+// Otherwise a job with an expired lease will be removed from the tracker.
+// A write lock must be held in order to call this function.
+func (jt *JobTracker) expireLeases(leaseDuration time.Duration, now time.Time) (bool, error) {
 	wasEmpty := jt.isPendingEmpty()
 
 	var e, next *list.Element
@@ -255,6 +270,40 @@ func (jt *JobTracker) ExpireLeases(leaseDuration time.Duration) (bool, error) {
 	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
 
 	return wasEmpty && len(reviveJobs) > 0, nil
+}
+
+// plan enqueues plan jobs for the time windows determined by planningInterval.
+// compactionWaitPeriod is the period of time compactors wait before compacting L1 blocks.
+// A write lock must be held in order to call this function.
+func (jt *JobTracker) plan(planningInterval, compactionWaitPeriod time.Duration, now time.Time) (bool, error) {
+	if _, ok := jt.incompleteJobs[planJobId]; ok {
+		// There is already a plan job
+		return false, nil
+	}
+
+	nextPlanningWindow := jt.completePlanTime.Add(planningInterval).UTC().Truncate(planningInterval)
+
+	if nextPlanningWindow.Hour()%2 == 0 {
+		// L1 blocks are expected on even hours so account for the compaction wait period
+		nextPlanningWindow = nextPlanningWindow.Add(compactionWaitPeriod)
+	}
+	if now.Before(nextPlanningWindow) {
+		// This window has already been planned
+		return false, nil
+	}
+
+	job := NewTrackedPlanJob(jt.clock.Now())
+	if err := jt.persister.WriteJob(job); err != nil {
+		return false, err
+	}
+
+	// Drop the previous completion time since there is now a pending job that overwrote it
+	jt.completePlanTime = time.Time{}
+
+	wasEmpty := jt.isPendingEmpty()
+	jt.incompleteJobs[planJobId] = jt.pending.PushBack(job)
+	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
+	return wasEmpty, nil
 }
 
 // RenewLease renews a lease to prevent it from being expired. This is intentionally not persisted. A buffer time is used across restarts instead.
@@ -329,30 +378,6 @@ func (jt *JobTracker) CancelLease(id string, epoch int64) (canceled bool, became
 	return true, wasEmpty && revive, nil
 }
 
-func (jt *JobTracker) OfferPlanJob(job *TrackedPlanJob) (accepted int, transition rotationTransition, err error) {
-	jt.mtx.Lock()
-	defer jt.mtx.Unlock()
-
-	if _, ok := jt.incompleteJobs[planJobId]; ok {
-		// A plan job is already present, do not replace it
-		return 0, rotationNoChange, nil
-	}
-
-	if err := jt.persister.WriteJob(job); err != nil {
-		return 0, rotationNoChange, fmt.Errorf("failed persisting plan job offer: %w", err)
-	}
-
-	wasEmpty := jt.isPendingEmpty()
-	jt.incompleteJobs[planJobId] = jt.pending.PushBack(job)
-	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
-
-	transition = rotationNoChange
-	if wasEmpty {
-		transition = rotationAddTracker
-	}
-	return 1, transition, nil
-}
-
 // OfferCompactionJobs processes the results from a plan job. Since planning offers a fresh view of pending work all remaining pending work
 // is replaced. Only a subset of the offered jobs may be accepted. The plan job itself will be considered completed if the epoch
 // provided was a match.
@@ -380,7 +405,7 @@ func (jt *JobTracker) OfferCompactionJobs(jobs []*TrackedCompactionJob, planJobE
 		}
 	}
 
-	acceptedJobs := make([]TrackedJob, 0, len(jobs))
+	acceptedJobs := make([]TrackedJob, 0, len(jobs)+1)
 	for _, j := range jobs {
 		e, ok := jt.incompleteJobs[j.ID()]
 		if ok {
@@ -405,7 +430,7 @@ func (jt *JobTracker) OfferCompactionJobs(jobs []*TrackedCompactionJob, planJobE
 		preventDeleteIds[j.ID()] = struct{}{}
 	}
 
-	deleteJobs := make([]TrackedJob, 0, len(jt.completeCompactionJobs)+jt.pending.Len()+1)
+	deleteJobs := make([]TrackedJob, 0, len(jt.completeCompactionJobs)+jt.pending.Len())
 	// Delete completed jobs, unless they will be overwritten anyway by an accepted job.
 	for _, j := range jt.completeCompactionJobs {
 		id := j.ID()
@@ -421,12 +446,19 @@ func (jt *JobTracker) OfferCompactionJobs(jobs []*TrackedCompactionJob, planJobE
 			deleteJobs = append(deleteJobs, j)
 		}
 	}
-	deleteJobs = append(deleteJobs, planJob) // we know the plan job was in the active list due to the epoch check
 
-	err = jt.persister.WriteAndDeleteJobs(acceptedJobs, deleteJobs)
+	// Mark the plan job as complete to preserve information on when planning was done.
+	pjj := planJob.CopyBase()
+	pjj.MarkComplete(jt.clock.Now())
+	writeJobs := append(acceptedJobs, pjj)
+
+	err = jt.persister.WriteAndDeleteJobs(writeJobs, deleteJobs)
 	if err != nil {
 		return 0, true, rotationNoChange, fmt.Errorf("failed writing offered jobs: %w", err)
 	}
+
+	// Remember the time the plan completed to help determine when to submit the next plan job
+	jt.completePlanTime = pjj.StatusTime()
 
 	wasEmpty := jt.isPendingEmpty()
 

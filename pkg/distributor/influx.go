@@ -105,7 +105,8 @@ func InfluxHandler(
 				return
 			}
 			if errors.Is(err, influxio.ErrReadLimitExceeded) {
-				level.Warn(logger).Log("msg", "request too large", "err", err, "bytesRead", req.UncompressedBodySize(), "maxMsgSize", maxRecvMsgSize)
+				// Note: req.UncompressedBodySize() will be 0 here because the supplier returned an error before completing.
+				level.Warn(logger).Log("msg", "request too large", "err", err, "maxMsgSize", maxRecvMsgSize)
 				w.WriteHeader(http.StatusRequestEntityTooLarge)
 				return
 			}

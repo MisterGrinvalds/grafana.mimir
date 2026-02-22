@@ -538,7 +538,7 @@ func New(cfg Config, clientConfig ingester_client.Config, limits *validation.Ove
 		}, []string{"user"}),
 		receivedBytes: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "cortex_distributor_received_bytes_total",
-			Help: "The total number of uncompressed bytes received in the original request body (before any protocol conversion), excluding rejected and deduped requests.",
+			Help: "The total number of uncompressed bytes received in the original request body (before any protocol conversion). Excludes requests rejected by middleware (e.g., rate limiting, size limits) but includes bytes from requests that pass initial checks even if individual samples are later rejected or deduplicated.",
 		}, []string{"user"}),
 		incomingRequests: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "cortex_distributor_requests_in_total",

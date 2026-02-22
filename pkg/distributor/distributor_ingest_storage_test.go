@@ -235,7 +235,7 @@ func TestDistributor_Push_ShouldSupportIngestStorage(t *testing.T) {
 					# TYPE cortex_distributor_received_exemplars_total counter
 					cortex_distributor_received_exemplars_total{user="user"} 1
 
-					# HELP cortex_distributor_received_bytes_total The total number of uncompressed bytes received in the original request body (before any protocol conversion), excluding rejected and deduped requests.
+					# HELP cortex_distributor_received_bytes_total The total number of uncompressed bytes received in the original request body (before any protocol conversion). Excludes requests rejected by middleware (e.g., rate limiting, size limits) but includes bytes from requests that pass initial checks even if individual samples are later rejected or deduplicated.
 					# TYPE cortex_distributor_received_bytes_total counter
 					cortex_distributor_received_bytes_total{user="user"} %d
 

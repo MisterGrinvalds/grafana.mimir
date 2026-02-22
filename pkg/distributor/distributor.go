@@ -2097,7 +2097,7 @@ func (d *Distributor) push(ctx context.Context, pushReq *Request) error {
 		return err
 	}
 
-	d.updateReceivedMetrics(req, userID)
+	d.updateReceivedMetrics(ctx, req, userID)
 
 	if len(req.Timeseries) == 0 && len(req.Metadata) == 0 {
 		return nil
@@ -2352,7 +2352,7 @@ func tokenForMetadata(userID string, metricName string) uint32 {
 	return mimirpb.ShardByMetricName(userID, metricName)
 }
 
-func (d *Distributor) updateReceivedMetrics(req *mimirpb.WriteRequest, userID string) {
+func (d *Distributor) updateReceivedMetrics(ctx context.Context, req *mimirpb.WriteRequest, userID string) {
 	var receivedSamples, receivedHistograms, receivedHistogramBuckets, receivedExemplars, receivedMetadata int
 	for _, ts := range req.Timeseries {
 		receivedSamples += len(ts.Samples)
@@ -2370,7 +2370,16 @@ func (d *Distributor) updateReceivedMetrics(req *mimirpb.WriteRequest, userID st
 	d.receivedNativeHistogramBuckets.WithLabelValues(userID).Add(float64(receivedHistogramBuckets))
 	d.receivedExemplars.WithLabelValues(userID).Add(float64(receivedExemplars))
 	d.receivedMetadata.WithLabelValues(userID).Add(float64(receivedMetadata))
-	d.receivedBytes.WithLabelValues(userID).Add(float64(req.Size()))
+
+	// Reuse the request size already computed by limitsMiddleware if available,
+	// otherwise compute it (e.g., when push() is called directly in tests).
+	var reqSize int
+	if rs, ok := ctx.Value(requestStateKey).(*requestState); ok && rs.writeRequestSize > 0 {
+		reqSize = int(rs.writeRequestSize)
+	} else {
+		reqSize = req.Size()
+	}
+	d.receivedBytes.WithLabelValues(userID).Add(float64(reqSize))
 }
 
 // forReplicationSets runs f, in parallel, for all ingesters in the input replicationSets.

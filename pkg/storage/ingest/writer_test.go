@@ -98,9 +98,9 @@ func TestWriter_WriteSync(t *testing.T) {
 
 		// Check metrics.
 		assert.NoError(t, promtest.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
-			# HELP cortex_ingest_storage_writer_received_bytes_total Total number of bytes received before conversion to the Kafka record format.
-			# TYPE cortex_ingest_storage_writer_received_bytes_total counter
-			cortex_ingest_storage_writer_received_bytes_total %d
+			# HELP cortex_ingest_storage_writer_input_bytes_total Total number of bytes in write requests before conversion to the Kafka record format.
+			# TYPE cortex_ingest_storage_writer_input_bytes_total counter
+			cortex_ingest_storage_writer_input_bytes_total %d
 
 			# HELP cortex_ingest_storage_writer_sent_bytes_total Total number of bytes produced to the Kafka backend.
 			# TYPE cortex_ingest_storage_writer_sent_bytes_total counter
@@ -124,7 +124,7 @@ func TestWriter_WriteSync(t *testing.T) {
 			# TYPE cortex_ingest_storage_writer_produce_records_enqueued_total counter
 			cortex_ingest_storage_writer_produce_records_enqueued_total{client_id="0"} 1
 		`, inputSize, len(fetches.Records()[0].Value))),
-			"cortex_ingest_storage_writer_received_bytes_total",
+			"cortex_ingest_storage_writer_input_bytes_total",
 			"cortex_ingest_storage_writer_sent_bytes_total",
 			"cortex_ingest_storage_writer_records_per_write_request",
 			"cortex_ingest_storage_writer_produce_records_enqueued_total"))
@@ -193,9 +193,9 @@ func TestWriter_WriteSync(t *testing.T) {
 		expectedSentBytes := len(records[0].Value) + len(records[1].Value)
 
 		assert.NoError(t, promtest.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
-			# HELP cortex_ingest_storage_writer_received_bytes_total Total number of bytes received before conversion to the Kafka record format.
-			# TYPE cortex_ingest_storage_writer_received_bytes_total counter
-			cortex_ingest_storage_writer_received_bytes_total %d
+			# HELP cortex_ingest_storage_writer_input_bytes_total Total number of bytes in write requests before conversion to the Kafka record format.
+			# TYPE cortex_ingest_storage_writer_input_bytes_total counter
+			cortex_ingest_storage_writer_input_bytes_total %d
 
 			# HELP cortex_ingest_storage_writer_sent_bytes_total Total number of bytes produced to the Kafka backend.
 			# TYPE cortex_ingest_storage_writer_sent_bytes_total counter
@@ -219,7 +219,7 @@ func TestWriter_WriteSync(t *testing.T) {
 			# TYPE cortex_ingest_storage_writer_produce_records_enqueued_total counter
 			cortex_ingest_storage_writer_produce_records_enqueued_total{client_id="0"} 2
 		`, expectedReq.Size(), expectedSentBytes)),
-			"cortex_ingest_storage_writer_received_bytes_total",
+			"cortex_ingest_storage_writer_input_bytes_total",
 			"cortex_ingest_storage_writer_sent_bytes_total",
 			"cortex_ingest_storage_writer_records_per_write_request",
 			"cortex_ingest_storage_writer_produce_records_enqueued_total"))
@@ -607,9 +607,9 @@ func TestWriter_WriteSync(t *testing.T) {
 
 		// Check metrics.
 		assert.NoError(t, promtest.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
-			# HELP cortex_ingest_storage_writer_received_bytes_total Total number of bytes received before conversion to the Kafka record format.
-			# TYPE cortex_ingest_storage_writer_received_bytes_total counter
-			cortex_ingest_storage_writer_received_bytes_total %d
+			# HELP cortex_ingest_storage_writer_input_bytes_total Total number of bytes in write requests before conversion to the Kafka record format.
+			# TYPE cortex_ingest_storage_writer_input_bytes_total counter
+			cortex_ingest_storage_writer_input_bytes_total %d
 
 			# HELP cortex_ingest_storage_writer_sent_bytes_total Total number of bytes produced to the Kafka backend.
 			# TYPE cortex_ingest_storage_writer_sent_bytes_total counter
@@ -637,7 +637,7 @@ func TestWriter_WriteSync(t *testing.T) {
 			# TYPE cortex_ingest_storage_writer_produce_records_failed_total counter
 			cortex_ingest_storage_writer_produce_records_failed_total{client_id="0",reason="record-too-large"} 1
 		`, req.Size(), len(fetches.Records()[0].Value))),
-			"cortex_ingest_storage_writer_received_bytes_total",
+			"cortex_ingest_storage_writer_input_bytes_total",
 			"cortex_ingest_storage_writer_sent_bytes_total",
 			"cortex_ingest_storage_writer_records_per_write_request",
 			"cortex_ingest_storage_writer_produce_records_enqueued_total",

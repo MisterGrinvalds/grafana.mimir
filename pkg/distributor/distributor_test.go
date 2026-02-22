@@ -486,7 +486,7 @@ func TestDistributor_MetricsCleanup(t *testing.T) {
 		# TYPE cortex_distributor_non_ha_samples_received_total counter
 		cortex_distributor_non_ha_samples_received_total{user="userA"} 5
 
-		# HELP cortex_distributor_received_bytes_total The total number of received bytes, excluding rejected and deduped requests.
+		# HELP cortex_distributor_received_bytes_total The total number of uncompressed bytes received in the original request body (before any protocol conversion), excluding rejected and deduped requests.
 		# TYPE cortex_distributor_received_bytes_total counter
 		cortex_distributor_received_bytes_total{user="userA"} 100
 		cortex_distributor_received_bytes_total{user="userB"} 200
@@ -537,7 +537,7 @@ func TestDistributor_MetricsCleanup(t *testing.T) {
 		# HELP cortex_distributor_non_ha_samples_received_total The total number of received samples for a user that has HA tracking turned on, but the sample didn't contain both HA labels.
 		# TYPE cortex_distributor_non_ha_samples_received_total counter
 
-		# HELP cortex_distributor_received_bytes_total The total number of received bytes, excluding rejected and deduped requests.
+		# HELP cortex_distributor_received_bytes_total The total number of uncompressed bytes received in the original request body (before any protocol conversion), excluding rejected and deduped requests.
 		# TYPE cortex_distributor_received_bytes_total counter
 		cortex_distributor_received_bytes_total{user="userB"} 200
 

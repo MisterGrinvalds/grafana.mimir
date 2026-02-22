@@ -10,7 +10,9 @@ import (
 )
 
 // supplierFunc should return either a non-nil body or a non-nil error. The returned cleanup function can be nil.
-type supplierFunc func() (req *mimirpb.WriteRequest, cleanup func(), err error)
+// uncompressedBodySize is the size of the original request body before any conversion (e.g., RW2 to RW1, OTLP to Prometheus).
+// It may be 0 if the size is not available (e.g., for gRPC push or tests).
+type supplierFunc func() (req *mimirpb.WriteRequest, cleanup func(), uncompressedBodySize int, err error)
 
 // Request represents a push request. It allows lazy body reading from the underlying http request
 // and adding cleanup functions that should be called after the request has been handled.
@@ -32,6 +34,10 @@ type Request struct {
 	artificialDelay time.Duration
 
 	contentLength int64
+
+	// uncompressedBodySize is the uncompressed request body size (wire bytes before any conversion).
+	// This is set after WriteRequest() is called and may be 0 if not available (e.g., for gRPC push or tests).
+	uncompressedBodySize int
 }
 
 func newRequest(p supplierFunc) *Request {
@@ -44,8 +50,8 @@ func newRequest(p supplierFunc) *Request {
 }
 
 func NewParsedRequest(r *mimirpb.WriteRequest) *Request {
-	return newRequest(func() (*mimirpb.WriteRequest, func(), error) {
-		return r, nil, nil
+	return newRequest(func() (*mimirpb.WriteRequest, func(), int, error) {
+		return r, nil, 0, nil // uncompressedBodySize=0 for pre-parsed requests (gRPC path)
 	})
 }
 
@@ -54,13 +60,20 @@ func NewParsedRequest(r *mimirpb.WriteRequest) *Request {
 func (r *Request) WriteRequest() (*mimirpb.WriteRequest, error) {
 	if r.request == nil && r.err == nil {
 		var cleanup func()
-		r.request, cleanup, r.err = r.getRequest()
+		r.request, cleanup, r.uncompressedBodySize, r.err = r.getRequest()
 		if r.request == nil && r.err == nil {
 			r.err = fmt.Errorf("push.Request supplierFunc returned a nil body and a nil error, either should be non-nil")
 		}
 		r.AddCleanup(cleanup)
 	}
 	return r.request, r.err
+}
+
+// UncompressedBodySize returns the uncompressed request body size (wire bytes before any conversion).
+// Returns 0 if not available (e.g., for gRPC push or tests).
+// Must be called after WriteRequest() to get a valid value.
+func (r *Request) UncompressedBodySize() int {
+	return r.uncompressedBodySize
 }
 
 // AddCleanup adds a function that will be called once CleanUp is called. If f is nil, it will not be invoked.

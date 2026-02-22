@@ -703,8 +703,8 @@ func TestHandler_ErrorTranslation(t *testing.T) {
 	}
 	for _, tc := range parserTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			parserFunc := func(context.Context, *http.Request, int, *util.RequestBuffers, *mimirpb.PreallocWriteRequest, log.Logger) error {
-				return tc.err
+			parserFunc := func(context.Context, *http.Request, int, *util.RequestBuffers, *mimirpb.PreallocWriteRequest, log.Logger) (int, error) {
+				return 0, tc.err
 			}
 			pushFunc := func(_ context.Context, req *Request) error {
 				_, err := req.WriteRequest() // just read the body so we can trigger the parser
@@ -790,8 +790,8 @@ func TestHandler_ErrorTranslation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			parserFunc := func(context.Context, *http.Request, int, *util.RequestBuffers, *mimirpb.PreallocWriteRequest, log.Logger) error {
-				return nil
+			parserFunc := func(context.Context, *http.Request, int, *util.RequestBuffers, *mimirpb.PreallocWriteRequest, log.Logger) (int, error) {
+				return 0, nil
 			}
 			pushFunc := func(_ context.Context, req *Request) error {
 				_, err := req.WriteRequest() // just read the body so we can trigger the parser

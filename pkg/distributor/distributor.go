@@ -538,7 +538,7 @@ func New(cfg Config, clientConfig ingester_client.Config, limits *validation.Ove
 		}, []string{"user"}),
 		receivedBytes: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "cortex_distributor_received_bytes_total",
-			Help: "The total number of received bytes, excluding rejected and deduped requests.",
+			Help: "The total number of uncompressed bytes received in the original request body (before any protocol conversion), excluding rejected and deduped requests.",
 		}, []string{"user"}),
 		incomingRequests: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "cortex_distributor_requests_in_total",
@@ -2097,7 +2097,7 @@ func (d *Distributor) push(ctx context.Context, pushReq *Request) error {
 		return err
 	}
 
-	d.updateReceivedMetrics(ctx, req, userID)
+	d.updateReceivedMetrics(ctx, pushReq, req, userID)
 
 	if len(req.Timeseries) == 0 && len(req.Metadata) == 0 {
 		return nil
@@ -2352,7 +2352,7 @@ func tokenForMetadata(userID string, metricName string) uint32 {
 	return mimirpb.ShardByMetricName(userID, metricName)
 }
 
-func (d *Distributor) updateReceivedMetrics(ctx context.Context, req *mimirpb.WriteRequest, userID string) {
+func (d *Distributor) updateReceivedMetrics(ctx context.Context, pushReq *Request, req *mimirpb.WriteRequest, userID string) {
 	var receivedSamples, receivedHistograms, receivedHistogramBuckets, receivedExemplars, receivedMetadata int
 	for _, ts := range req.Timeseries {
 		receivedSamples += len(ts.Samples)
@@ -2371,12 +2371,18 @@ func (d *Distributor) updateReceivedMetrics(ctx context.Context, req *mimirpb.Wr
 	d.receivedExemplars.WithLabelValues(userID).Add(float64(receivedExemplars))
 	d.receivedMetadata.WithLabelValues(userID).Add(float64(receivedMetadata))
 
-	// Reuse the request size already computed by limitsMiddleware if available,
-	// otherwise compute it (e.g., when push() is called directly in tests).
+	// Use the uncompressed body size (original wire bytes) when available.
+	// This properly accounts for RW2/OTLP requests where the internal WriteRequest
+	// is larger than the original wire format due to symbol table expansion.
+	// Falls back to req.Size() for gRPC push or tests where wire size is unavailable.
 	var reqSize int
-	if rs, ok := ctx.Value(requestStateKey).(*requestState); ok && rs.writeRequestSize > 0 {
+	if uncompressedSize := pushReq.UncompressedBodySize(); uncompressedSize > 0 {
+		reqSize = uncompressedSize
+	} else if rs, ok := ctx.Value(requestStateKey).(*requestState); ok && rs.writeRequestSize > 0 {
+		// Fallback: reuse the request size already computed by limitsMiddleware if available.
 		reqSize = int(rs.writeRequestSize)
 	} else {
+		// Fallback: compute it (e.g., when push() is called directly in tests).
 		reqSize = req.Size()
 	}
 	d.receivedBytes.WithLabelValues(userID).Add(float64(reqSize))

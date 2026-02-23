@@ -1960,14 +1960,6 @@ func (bss loadedBlockSetStats) CompactionLevels() map[int]int {
 	return bss.loadedCompactionLevels
 }
 
-func (bss loadedBlockSetStats) Len() int {
-	total := 0
-	for _, v := range bss.loadedCompactionLevels {
-		total += v
-	}
-	return total
-}
-
 func (bss loadedBlockSetStats) Add(b *bucketBlock) {
 	bss.loadedSizeBytes += b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]++

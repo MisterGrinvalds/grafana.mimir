@@ -288,8 +288,8 @@ func (s *BucketStore) RemoveBlocksAndClose() error {
 }
 
 // Stats returns statistics about the BucketStore instance.
-func (s *BucketStore) Stats() *loadedBlockSetStats {
-	return s.blockSet.blockSetStats
+func (s *BucketStore) Stats() *BlockSetStats {
+	return s.blockSet.stats()
 }
 
 // SyncBlocks synchronizes the stores state with the Bucket bucket.
@@ -1749,7 +1749,7 @@ type bucketBlockSet struct {
 	mtx           sync.RWMutex
 	blockSet      sync.Map       // Maps block's ulid.ULID to the *bucketBlock.
 	blocks        []*bucketBlock // Blocks sorted by mint, then maxt.
-	blockSetStats *loadedBlockSetStats
+	blockSetStats *BlockSetStats
 }
 
 // newBucketBlockSet initializes a new set with the known downsampling windows hard-configured.
@@ -1761,7 +1761,18 @@ func newBucketBlockSet() *bucketBlockSet {
 	}
 }
 
-// add adds a block to the set and updates the loadedBlockSetStats.
+func (s *bucketBlockSet) stats() *BlockSetStats {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	// Copy values into new struct to avoid data race while being read by caller
+	return &BlockSetStats{
+		s.blockSetStats.SizeBytes(),
+		maps.Clone(s.blockSetStats.CompactionLevels()),
+	}
+}
+
+// add adds a block to the set and updates the BlockSetStats.
 func (s *bucketBlockSet) add(b *bucketBlock) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
@@ -1787,7 +1798,7 @@ func (s *bucketBlockSet) add(b *bucketBlock) error {
 	return nil
 }
 
-// remove removes the block identified by id from the set and updates loadedBlockSetStats.
+// remove removes the block identified by id from the set and updates BlockSetStats.
 // It returns the removed block if it was present in the set.
 func (s *bucketBlockSet) remove(id ulid.ULID) *bucketBlock {
 	s.mtx.Lock()
@@ -1936,8 +1947,10 @@ func (s *bucketBlockSet) timerange() (mint, maxt int64) {
 	return mint, maxt
 }
 
-type loadedBlockSetStats struct {
-	mu sync.RWMutex
+// BlockSetStats tracks metrics for the bucketBlockSet to be collected by BucketStores.
+// Concurrent calls to BlockSetStats are expected to be protected by the mutex in bucketBlockSet.
+// Values must be copied out when reported to collectors, as the callers will not hold the mutex.
+type BlockSetStats struct {
 
 	// loadedSizeBytes tracks the total size in bytes of loaded blocks on local disk.
 	// This includes index-header and sparse-index-header files,
@@ -1948,35 +1961,27 @@ type loadedBlockSetStats struct {
 	loadedCompactionLevels map[int]int
 }
 
-func newLoadedBlockSetStats() *loadedBlockSetStats {
-	return &loadedBlockSetStats{
+func newLoadedBlockSetStats() *BlockSetStats {
+	return &BlockSetStats{
 		loadedSizeBytes:        0,
 		loadedCompactionLevels: make(map[int]int),
 	}
 }
 
-func (bss *loadedBlockSetStats) SizeBytes() int64 {
-	bss.mu.RLock()
-	defer bss.mu.RUnlock()
+func (bss *BlockSetStats) SizeBytes() int64 {
 	return bss.loadedSizeBytes
 }
 
-func (bss *loadedBlockSetStats) CompactionLevels() map[int]int {
-	bss.mu.RLock()
-	defer bss.mu.RUnlock()
-	return maps.Clone(bss.loadedCompactionLevels)
+func (bss *BlockSetStats) CompactionLevels() map[int]int {
+	return bss.loadedCompactionLevels
 }
 
-func (bss *loadedBlockSetStats) Add(b *bucketBlock) {
-	bss.mu.Lock()
-	defer bss.mu.Unlock()
+func (bss *BlockSetStats) Add(b *bucketBlock) {
 	bss.loadedSizeBytes += b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]++
 }
 
-func (bss *loadedBlockSetStats) Remove(b *bucketBlock) {
-	bss.mu.Lock()
-	defer bss.mu.Unlock()
+func (bss *BlockSetStats) Remove(b *bucketBlock) {
 	bss.loadedSizeBytes -= b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]--
 }

@@ -136,6 +136,9 @@ func Merge(a, b PostableApiAlertingConfig, opts MergeOpts) (MergeResult, error) 
 	}
 
 	if len(opts.SubtreeMatchers) > 0 {
+		if a.Route == nil {
+			return MergeResult{}, fmt.Errorf("cannot merge into undefined routing tree")
+		}
 		match, err := checkIfMatchersUsed(opts.SubtreeMatchers, a.Route.Routes)
 		if err != nil {
 			return MergeResult{}, err

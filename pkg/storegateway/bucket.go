@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"path"
@@ -1936,6 +1937,8 @@ func (s *bucketBlockSet) timerange() (mint, maxt int64) {
 }
 
 type loadedBlockSetStats struct {
+	mu sync.RWMutex
+
 	// loadedSizeBytes tracks the total size in bytes of loaded blocks on local disk.
 	// This includes index-header and sparse-index-header files,
 	// but not the actual block data in the object storage.
@@ -1953,27 +1956,27 @@ func newLoadedBlockSetStats() *loadedBlockSetStats {
 }
 
 func (bss *loadedBlockSetStats) SizeBytes() int64 {
+	bss.mu.RLock()
+	defer bss.mu.RUnlock()
 	return bss.loadedSizeBytes
 }
 
 func (bss *loadedBlockSetStats) CompactionLevels() map[int]int {
-	return bss.loadedCompactionLevels
-}
-
-func (bss *loadedBlockSetStats) Len() int {
-	total := 0
-	for _, v := range bss.loadedCompactionLevels {
-		total += v
-	}
-	return total
+	bss.mu.RLock()
+	defer bss.mu.RUnlock()
+	return maps.Clone(bss.loadedCompactionLevels)
 }
 
 func (bss *loadedBlockSetStats) Add(b *bucketBlock) {
+	bss.mu.Lock()
+	defer bss.mu.Unlock()
 	bss.loadedSizeBytes += b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]++
 }
 
 func (bss *loadedBlockSetStats) Remove(b *bucketBlock) {
+	bss.mu.Lock()
+	defer bss.mu.Unlock()
 	bss.loadedSizeBytes -= b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]--
 }

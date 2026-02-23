@@ -156,7 +156,7 @@ func (w *Writer) WriteSync(ctx context.Context, partitionID int32, userID string
 	}
 
 	// Create records out of the write request.
-	records, inputSize, err := w.serializer.ToRecords(partitionID, userID, req, w.kafkaCfg.ProducerMaxRecordSizeBytes)
+	records, reqSizeBytes, err := w.serializer.ToRecords(partitionID, userID, req, w.kafkaCfg.ProducerMaxRecordSizeBytes)
 	if err != nil {
 		return err
 	}
@@ -177,10 +177,10 @@ func (w *Writer) WriteSync(ctx context.Context, partitionID int32, userID string
 	// We track the latency both in case of success and failure (but with a different label), to avoid misunderstandings
 	// when we look at it in case Kafka Produce requests time out (if latency wasn't tracked on error, we would see low
 	// latency but in practice many are very high latency and timing out).
-	if count, sizeBytes := successfulProduceRecordsStats(res); count > 0 {
+	if count, recordsSizeBytes := successfulProduceRecordsStats(res); count > 0 {
 		w.writeSuccessLatency.Observe(time.Since(startTime).Seconds())
-		w.writeBytesTotal.Add(float64(sizeBytes))
-		w.inputBytesTotal.Add(float64(inputSize))
+		w.writeBytesTotal.Add(float64(recordsSizeBytes))
+		w.inputBytesTotal.Add(float64(reqSizeBytes))
 	} else {
 		w.writeFailureLatency.Observe(time.Since(startTime).Seconds())
 	}

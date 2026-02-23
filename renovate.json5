@@ -97,6 +97,13 @@
       groupName: 'Go',
     },
     {
+      description: 'Group all dependency updates touching mimir-build-image/Dockerfile into a single PR',
+      matchFileNames: [
+        'mimir-build-image/Dockerfile',
+      ],
+      groupName: 'mimir-build-image',
+    },
+    {
       description: 'Enable updating Node.js dependencies in operations/mimir-mixin-tools/screenshots',
       matchFileNames: [
         'operations/mimir-mixin-tools/screenshots/**',

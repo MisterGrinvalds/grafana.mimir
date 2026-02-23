@@ -56,6 +56,14 @@ type TenantRotationState struct {
 }
 
 func NewRotator(leaseDuration, planningInterval, compactionWaitPeriod, maintenanceInterval time.Duration, intervalsBeforeLeaseExpiration int, metrics *schedulerMetrics, logger log.Logger) *Rotator {
+	// Ensure the grace period is at least as long as the lease duration.
+	// Since RenewLease updates are not persisted, we need to wait at least one full lease duration
+	// after restart before enforcing lease expiration to give workers time to renew their leases.
+	minIntervals := int((leaseDuration + maintenanceInterval - 1) / maintenanceInterval) // ceiling division
+	if intervalsBeforeLeaseExpiration < minIntervals {
+		intervalsBeforeLeaseExpiration = minIntervals
+	}
+
 	r := &Rotator{
 		leaseDuration:                  leaseDuration,
 		planningInterval:               planningInterval,

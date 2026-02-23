@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package test contains tests for range vector splitting that run against the full
-// streaming PromQL engine. This package is separate from the rangevectorsplitting
-// package to avoid circular dependencies: the engine depends on the optimization
-// pass, so engine-level tests live here.
-package test
+package rangevectorsplitting_test
 
 import (
 	"context"

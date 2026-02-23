@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package test
+package rangevectorsplitting_test
 
 import (
 	"context"
@@ -31,7 +31,7 @@ var querySplittingTestSplitIntervals = []time.Duration{
 // TestQuerySplitting_UpstreamTestCases runs upstream Prometheus test cases with query splitting enabled.
 // This is analogous to TestUpstreamTestCases but with query splitting.
 func TestQuerySplitting_UpstreamTestCases(t *testing.T) {
-	testdataFS := os.DirFS("../../../../testdata")
+	testdataFS := os.DirFS("../../../testdata")
 	testFiles, err := fs.Glob(testdataFS, "upstream/*.test")
 	require.NoError(t, err)
 
@@ -57,7 +57,7 @@ func TestQuerySplitting_UpstreamTestCases(t *testing.T) {
 // TestQuerySplitting_OurTestCases runs Mimir's test cases with query splitting enabled.
 // This is analogous to TestOurTestCases but with query splitting.
 func TestQuerySplitting_OurTestCases(t *testing.T) {
-	testdataFS := os.DirFS("../../../../testdata")
+	testdataFS := os.DirFS("../../../testdata")
 	oursTests, err := fs.Glob(testdataFS, "ours/*.test")
 	require.NoError(t, err)
 	require.NotEmpty(t, oursTests, "expected to find test files")
@@ -97,9 +97,8 @@ func TestQuerySplitting_OurTestCases(t *testing.T) {
 	}
 }
 
-// TestQuerySplitting_RangeVectorSplittingTestCases runs the .test files in this package directory (range-vector-splitting-specific cases).
 func TestQuerySplitting_RangeVectorSplittingTestCases(t *testing.T) {
-	packageFS := os.DirFS(".")
+	packageFS := os.DirFS("testdata")
 	testFiles, err := fs.Glob(packageFS, "*.test")
 	require.NoError(t, err)
 	require.NotEmpty(t, testFiles, "expected to find .test files in package directory")
@@ -173,7 +172,7 @@ func skipUnsupportedTests(t *testing.T, testContent string, testFile string) str
 // TestQuerySplitting_EvalsRunTwice verifies that each eval in the range vector splitting test files appears at least
 // twice before the next clear, ensuring both cache miss and cache hit paths are tested.
 func TestQuerySplitting_EvalsRunTwice(t *testing.T) {
-	packageFS := os.DirFS(".")
+	packageFS := os.DirFS("testdata")
 	testFiles, err := fs.Glob(packageFS, "*.test")
 	require.NoError(t, err)
 	require.NotEmpty(t, testFiles)

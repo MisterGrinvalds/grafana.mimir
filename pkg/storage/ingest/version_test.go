@@ -327,10 +327,14 @@ func TestRecordSerializer(t *testing.T) {
 		}
 
 		serializer := versionTwoRecordSerializer{}
-		records, _, err := serializer.ToRecords(1234, "user-1", req, 100000)
+		inputSize := req.Size() // Capture input RW1 size before serialization
+		records, returnedSize, err := serializer.ToRecords(1234, "user-1", req, 100000)
 		require.NoError(t, err)
 		require.Len(t, records, 1)
 		record := records[0]
+
+		// Verify that ToRecords returns the input size (RW1), not the output size (RW2).
+		require.Equal(t, inputSize, returnedSize, "ToRecords should return input RW1 size, not output RW2 size")
 
 		require.Equal(t, 2, ParseRecordVersion(record))
 

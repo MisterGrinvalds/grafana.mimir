@@ -216,6 +216,8 @@ type Config struct {
 	PushReactiveLimiter  reactivelimiter.Config            `yaml:"push_reactive_limiter"`
 	ReadReactiveLimiter  reactivelimiter.Config            `yaml:"read_reactive_limiter"`
 
+	ForceMaxTimeBlockRetention time.Duration `yaml:"force_max_time_block_retention" category:"experimental"`
+
 	PushGrpcMethodEnabled bool `yaml:"push_grpc_method_enabled" category:"experimental" doc:"hidden"`
 
 	// This config is dynamically injected because defined outside the ingester config.
@@ -247,6 +249,7 @@ func (cfg *Config) RegisterFlags(f *flag.FlagSet, logger log.Logger) {
 	f.BoolVar(&cfg.UseIngesterOwnedSeriesForLimits, "ingester.use-ingester-owned-series-for-limits", false, "When enabled, only series currently owned by ingester according to the ring are used when checking user per-tenant series limit.")
 	f.BoolVar(&cfg.UpdateIngesterOwnedSeries, "ingester.track-ingester-owned-series", false, "This option enables tracking of ingester-owned series based on ring state, even if -ingester.use-ingester-owned-series-for-limits is disabled.")
 	f.DurationVar(&cfg.OwnedSeriesUpdateInterval, "ingester.owned-series-update-interval", 15*time.Second, "How often to check for ring changes and possibly recompute owned series as a result of detected change.")
+	f.DurationVar(&cfg.ForceMaxTimeBlockRetention, "ingester.force-max-time-block-retention", 0, "When set to a non-zero duration, non-OOO blocks whose MaxTime is older than this duration are forcefully deleted regardless of shipping status. Use 0 to disable.")
 	f.BoolVar(&cfg.PushGrpcMethodEnabled, "ingester.push-grpc-method-enabled", true, "Enables Push gRPC method on ingester. Can be only disabled when using ingest-storage to make sure ingesters only receive data from Kafka.")
 
 	// Hardcoded config (can only be overridden in tests).
@@ -2726,7 +2729,8 @@ func (i *Ingester) createTSDB(userID string, walReplayConcurrency int) (*userTSD
 		instanceLimitsFn:        i.getInstanceLimits,
 		instanceSeriesCount:     &i.seriesCount,
 		instanceErrors:          i.metrics.rejected,
-		blockMinRetention:       i.cfg.BlocksStorageConfig.TSDB.Retention,
+		blockMinRetention:          i.cfg.BlocksStorageConfig.TSDB.Retention,
+		forceMaxTimeBlockRetention: i.cfg.ForceMaxTimeBlockRetention,
 		useOwnedSeriesForLimits: i.cfg.UseIngesterOwnedSeriesForLimits,
 
 		ownedState: ownedSeriesState{

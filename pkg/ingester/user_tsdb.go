@@ -134,6 +134,8 @@ type userTSDB struct {
 	// Block min retention
 	blockMinRetention time.Duration
 
+	forceMaxTimeBlockRetention time.Duration
+
 	// Cached shipped blocks.
 	shippedBlocksMtx sync.Mutex
 	shippedBlocks    map[ulid.ULID]time.Time
@@ -451,6 +453,21 @@ func (u *userTSDB) blocksToDelete(blocks []*tsdb.Block) map[ulid.ULID]struct{} {
 		blockCreationTime := time.UnixMilli(int64(blockID.Time()))
 		if blockCreationTime.Before(deadline) {
 			result[blockID] = struct{}{}
+		}
+	}
+
+	if u.forceMaxTimeBlockRetention > 0 {
+		// marks non-OOO blocks for deletion when their MaxTime is older than
+		// the configured forceMaxTimeBlockRetention, independent of existing retention logic.
+		maxTimeDeadline := time.Now().Add(-u.forceMaxTimeBlockRetention).UnixMilli()
+		for _, b := range blocks {
+			meta := b.Meta()
+			if meta.Compaction.FromOutOfOrder() {
+				continue
+			}
+			if meta.MaxTime < maxTimeDeadline {
+				result[meta.ULID] = struct{}{}
+			}
 		}
 	}
 

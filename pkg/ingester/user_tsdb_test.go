@@ -4,6 +4,7 @@ package ingester
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -17,6 +18,106 @@ import (
 
 	"github.com/grafana/mimir/pkg/util/validation"
 )
+
+func TestUserTSDB_blocksToDelete_ForceDeleteOldBlocks(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	blockDuration := int64(2 * time.Hour / time.Millisecond)
+
+	db, err := tsdb.Open(dir, promslog.NewNopLogger(), nil, &tsdb.Options{
+		RetentionDuration:           0,
+		MinBlockDuration:            blockDuration,
+		MaxBlockDuration:            blockDuration,
+		OutOfOrderTimeWindow:        int64(6 * time.Hour / time.Millisecond),
+		OutOfOrderCapMax:            20,
+		EnableOverlappingCompaction: true,
+	}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	ctx := t.Context()
+
+	// Insert in-order samples at two distinct block ranges.
+	// "old" block: data from 6h ago.
+	oldBlockTime := now.Add(-6 * time.Hour).UnixMilli()
+	app := db.Appender(ctx)
+	for i := int64(0); i < 10; i++ {
+		_, err := app.Append(0, labels.FromStrings("__name__", "inorder", "i", fmt.Sprintf("%d", i)), oldBlockTime+i*1000, float64(i))
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+	require.NoError(t, db.Compact(ctx))
+
+	// "recent" block: data from 30min ago.
+	recentBlockTime := now.Add(-30 * time.Minute).UnixMilli()
+	app = db.Appender(ctx)
+	for i := int64(0); i < 10; i++ {
+		_, err := app.Append(0, labels.FromStrings("__name__", "inorder", "i", fmt.Sprintf("%d", i)), recentBlockTime+i*1000, float64(i))
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+	require.NoError(t, db.Compact(ctx))
+
+	// Insert OOO samples with old timestamps to create an OOO block.
+	oooBlockTime := now.Add(-5 * time.Hour).UnixMilli()
+	app = db.Appender(ctx)
+	for i := int64(0); i < 10; i++ {
+		_, err := app.Append(0, labels.FromStrings("__name__", "ooo", "i", fmt.Sprintf("%d", i)), oooBlockTime+i*1000, float64(i))
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+	require.NoError(t, db.CompactOOOHead(ctx))
+
+	blocks := db.Blocks()
+	require.GreaterOrEqual(t, len(blocks), 2, "expected at least 2 persisted blocks (old in-order + OOO)")
+
+	var oldInOrder, recentInOrder, oooBlocks []*tsdb.Block
+	oneHourAgo := now.Add(-1 * time.Hour).UnixMilli()
+	for _, b := range blocks {
+		meta := b.Meta()
+		if meta.Compaction.FromOutOfOrder() {
+			oooBlocks = append(oooBlocks, b)
+		} else if meta.MaxTime < oneHourAgo {
+			oldInOrder = append(oldInOrder, b)
+		} else {
+			recentInOrder = append(recentInOrder, b)
+		}
+	}
+	require.NotEmpty(t, oldInOrder, "expected old in-order block")
+	require.NotEmpty(t, oooBlocks, "expected OOO block")
+
+	t.Run("disabled when forceMaxTimeBlockRetention is 0", func(t *testing.T) {
+		u := &userTSDB{db: db, blockMinRetention: 24 * time.Hour, forceMaxTimeBlockRetention: 0}
+		toDelete := u.blocksToDelete(blocks)
+		for _, b := range oldInOrder {
+			assert.NotContains(t, toDelete, b.Meta().ULID)
+		}
+	})
+
+	t.Run("deletes old non-OOO blocks", func(t *testing.T) {
+		u := &userTSDB{db: db, blockMinRetention: 24 * time.Hour, forceMaxTimeBlockRetention: 1 * time.Hour}
+		toDelete := u.blocksToDelete(blocks)
+		for _, b := range oldInOrder {
+			assert.Contains(t, toDelete, b.Meta().ULID, "old in-order block should be deleted")
+		}
+	})
+
+	t.Run("preserves OOO blocks", func(t *testing.T) {
+		u := &userTSDB{db: db, blockMinRetention: 24 * time.Hour, forceMaxTimeBlockRetention: 1 * time.Hour}
+		toDelete := u.blocksToDelete(blocks)
+		for _, b := range oooBlocks {
+			assert.NotContains(t, toDelete, b.Meta().ULID, "OOO block should not be deleted")
+		}
+	})
+
+	t.Run("preserves recent non-OOO blocks", func(t *testing.T) {
+		u := &userTSDB{db: db, blockMinRetention: 24 * time.Hour, forceMaxTimeBlockRetention: 1 * time.Hour}
+		toDelete := u.blocksToDelete(blocks)
+		for _, b := range recentInOrder {
+			assert.NotContains(t, toDelete, b.Meta().ULID, "recent in-order block should not be deleted")
+		}
+	})
+}
 
 func TestUserTSDB_acquireAppendLock(t *testing.T) {
 	t.Run("should allow to acquire the lock during forced compaction if not conflicting with the compaction time range", func(t *testing.T) {

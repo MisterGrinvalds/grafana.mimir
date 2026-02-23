@@ -36,7 +36,7 @@ type Request struct {
 	contentLength int64
 
 	// uncompressedBodySize is the uncompressed request body size (wire bytes before any conversion).
-	// This is set after WriteRequest() is called and may be 0 if not available (e.g., for gRPC push or tests).
+	// It may be 0 if not available (e.g., for gRPC push or tests).
 	uncompressedBodySize int
 }
 
@@ -55,9 +55,9 @@ func NewParsedRequest(r *mimirpb.WriteRequest) *Request {
 	})
 }
 
-// WriteRequest returns request from supplier function. Function is only called once,
-// and subsequent calls to WriteRequest return the same value.
-func (r *Request) WriteRequest() (*mimirpb.WriteRequest, error) {
+// initWriteRequest initializes the write request by calling the supplier function.
+// It is safe to call multiple times; the supplier is only invoked once.
+func (r *Request) initWriteRequest() {
 	if r.request == nil && r.err == nil {
 		var cleanup func()
 		r.request, cleanup, r.uncompressedBodySize, r.err = r.getRequest()
@@ -66,13 +66,19 @@ func (r *Request) WriteRequest() (*mimirpb.WriteRequest, error) {
 		}
 		r.AddCleanup(cleanup)
 	}
+}
+
+// WriteRequest returns request from supplier function. Function is only called once,
+// and subsequent calls to WriteRequest return the same value.
+func (r *Request) WriteRequest() (*mimirpb.WriteRequest, error) {
+	r.initWriteRequest()
 	return r.request, r.err
 }
 
 // UncompressedBodySize returns the uncompressed request body size (wire bytes before any conversion).
 // Returns 0 if not available (e.g., for gRPC push or tests).
-// Must be called after WriteRequest() to get a valid value.
 func (r *Request) UncompressedBodySize() int {
+	r.initWriteRequest()
 	return r.uncompressedBodySize
 }
 

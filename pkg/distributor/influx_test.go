@@ -36,109 +36,108 @@ func TestInfluxHandleSeriesPush(t *testing.T) {
 	}
 
 	const defaultLineProtocol = "measurement,t1=v1 f1=2 1465839830100400200"
+	const defaultLineProtocolLen = len(defaultLineProtocol)
 
 	tests := []struct {
-		name                     string
-		url                      string
-		data                     string
-		expectedCode             int
-		expectedUncompressedSize int // expected bytes read from line protocol
-		push                     func(t *testing.T, expectedSize int) PushFunc
-		maxRequestSizeBytes      int
+		name                string
+		url                 string
+		data                string
+		expectedCode        int
+		push                func(t *testing.T) PushFunc
+		maxRequestSizeBytes int
 	}{
 		{
-			name:                     "POST",
-			url:                      "/write",
-			data:                     defaultLineProtocol,
-			expectedCode:             http.StatusNoContent,
-			expectedUncompressedSize: len(defaultLineProtocol),
-			push: func(t *testing.T, expectedSize int) PushFunc {
+			name:         "POST",
+			url:          "/write",
+			data:         defaultLineProtocol,
+			expectedCode: http.StatusNoContent,
+			push: func(t *testing.T) PushFunc {
 				return func(_ context.Context, pushReq *Request) error {
 					req, err := pushReq.WriteRequest()
 					assert.Equal(t, defaultExpectedWriteRequest, req)
 					assert.Nil(t, err)
-					// Verify uncompressed body size matches the line protocol bytes
-					assert.Equal(t, expectedSize, pushReq.UncompressedBodySize(), "uncompressed body size should match line protocol length")
+					assert.Equal(t, defaultLineProtocolLen, pushReq.UncompressedBodySize())
 					return err
 				}
 			},
 			maxRequestSizeBytes: 1 << 20,
 		},
 		{
-			name:                     "POST with precision",
-			url:                      "/write?precision=ns",
-			data:                     defaultLineProtocol,
-			expectedCode:             http.StatusNoContent,
-			expectedUncompressedSize: len(defaultLineProtocol),
-			push: func(t *testing.T, expectedSize int) PushFunc {
+			name:         "POST with precision",
+			url:          "/write?precision=ns",
+			data:         defaultLineProtocol,
+			expectedCode: http.StatusNoContent,
+			push: func(t *testing.T) PushFunc {
 				return func(_ context.Context, pushReq *Request) error {
 					req, err := pushReq.WriteRequest()
 					assert.Equal(t, defaultExpectedWriteRequest, req)
 					assert.Nil(t, err)
-					assert.Equal(t, expectedSize, pushReq.UncompressedBodySize(), "uncompressed body size should match line protocol length")
+					assert.Equal(t, defaultLineProtocolLen, pushReq.UncompressedBodySize())
 					return err
 				}
 			},
 			maxRequestSizeBytes: 1 << 20,
 		},
 		{
-			name:                     "invalid parsing error handling",
-			url:                      "/write",
-			data:                     "measurement,t1=v1 f1= 1465839830100400200",
-			expectedCode:             http.StatusBadRequest,
-			expectedUncompressedSize: 0, // error case, body size not relevant
-			push: func(t *testing.T, _ int) PushFunc {
+			name:         "invalid parsing error handling",
+			url:          "/write",
+			data:         "measurement,t1=v1 f1= 1465839830100400200",
+			expectedCode: http.StatusBadRequest,
+			push: func(t *testing.T) PushFunc {
 				return func(_ context.Context, pushReq *Request) error {
 					req, err := pushReq.WriteRequest()
 					assert.Nil(t, req)
 					assert.ErrorContains(t, err, "unable to parse")
 					assert.ErrorContains(t, err, "missing field value")
+					assert.Equal(t, 0, pushReq.UncompressedBodySize())
 					return err
 				}
 			},
 			maxRequestSizeBytes: 1 << 20,
 		},
 		{
-			name:                     "invalid query params",
-			url:                      "/write?precision=?",
-			data:                     "measurement,t1=v1 f1=2 1465839830100400200",
-			expectedCode:             http.StatusBadRequest,
-			expectedUncompressedSize: 0, // error case, body size not relevant
-			push: func(t *testing.T, _ int) PushFunc {
+			name:         "invalid query params",
+			url:          "/write?precision=?",
+			data:         "measurement,t1=v1 f1=2 1465839830100400200",
+			expectedCode: http.StatusBadRequest,
+			push: func(t *testing.T) PushFunc {
 				return func(_ context.Context, pushReq *Request) error {
 					req, err := pushReq.WriteRequest()
 					assert.Nil(t, req)
 					assert.ErrorContains(t, err, "precision supplied is not valid")
+					assert.Equal(t, 0, pushReq.UncompressedBodySize())
 					return err
 				}
 			},
 			maxRequestSizeBytes: 1 << 20,
 		},
 		{
-			name:                     "internal server error",
-			url:                      "/write",
-			data:                     defaultLineProtocol,
-			expectedCode:             http.StatusServiceUnavailable,
-			expectedUncompressedSize: len(defaultLineProtocol),
-			push: func(t *testing.T, _ int) PushFunc {
-				return func(_ context.Context, _ *Request) error {
-					assert.Error(t, context.DeadlineExceeded)
+			name:         "internal server error",
+			url:          "/write",
+			data:         defaultLineProtocol,
+			expectedCode: http.StatusServiceUnavailable,
+			push: func(t *testing.T) PushFunc {
+				return func(_ context.Context, pushReq *Request) error {
+					req, err := pushReq.WriteRequest()
+					assert.Equal(t, defaultExpectedWriteRequest, req)
+					assert.Nil(t, err)
+					assert.Equal(t, defaultLineProtocolLen, pushReq.UncompressedBodySize())
 					return context.DeadlineExceeded
 				}
 			},
 			maxRequestSizeBytes: 1 << 20,
 		},
 		{
-			name:                     "max batch size violated",
-			url:                      "/write",
-			data:                     "measurement,t1=v1 f1=2 0123456789",
-			expectedCode:             http.StatusBadRequest,
-			expectedUncompressedSize: 0, // error case, body size not relevant
-			push: func(t *testing.T, _ int) PushFunc {
+			name:         "max batch size violated",
+			url:          "/write",
+			data:         "measurement,t1=v1 f1=2 0123456789",
+			expectedCode: http.StatusBadRequest,
+			push: func(t *testing.T) PushFunc {
 				return func(_ context.Context, pushReq *Request) error {
 					req, err := pushReq.WriteRequest()
 					assert.Nil(t, req)
 					assert.Error(t, influxio.ErrReadLimitExceeded)
+					assert.Equal(t, 0, pushReq.UncompressedBodySize())
 					return err
 				}
 			},
@@ -148,7 +147,7 @@ func TestInfluxHandleSeriesPush(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := InfluxHandler(tt.maxRequestSizeBytes, nil, nil, RetryConfig{}, tt.push(t, tt.expectedUncompressedSize), nil, log.NewNopLogger())
+			handler := InfluxHandler(tt.maxRequestSizeBytes, nil, nil, RetryConfig{}, tt.push(t), nil, log.NewNopLogger())
 			req := httptest.NewRequest("POST", tt.url, bytes.NewReader([]byte(tt.data)))
 			const tenantID = "test"
 			req.Header.Set("X-Scope-OrgID", tenantID)

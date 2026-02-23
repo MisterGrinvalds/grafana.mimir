@@ -805,7 +805,11 @@ If this happens once for a tenant when compacting 12 hour blocks into 24 hour bl
 
 #### Compaction is failing because of `symbol table size limit` (reason: `symbol-table-too-large`)
 
-The compactor may fail to compact blocks due to the size of the symbol table of the result block exceeding 4GiB (its length exceeds 4 bytes). The symbol table stores all unique strings (label names and label values) used in the index.
+The compactor may fail to compact blocks due to the size of the symbol table of the result block exceeding 4GiB (its length exceeds 4 bytes). The symbol table stores all unique strings (label names and label values) used in the index:
+
+```
+ts=2025-12-23T00:37:18.252772Z caller=bucket_compactor.go:272 level=error component=compactor user=test groupKey=0@17241709254077376921-merge-7_of_16-1765497600000-1765584000000 job_type=merge minTime="2025-12-12 00:00:00 +0000 UTC" maxTime="2025-12-13 00:00:00 +0000 UTC" msg="compaction job failed" duration=5m54.874925125s duration_ms=354874 err="compact blocks 01KCA08M9RP54T810CKNQ0H4TZ,01KCBGA8D2WD2HV431NTFZ1M84: writing block: closing index writer: symbol table size exceeds 4294967295 bytes: 5765043200" block_count=2
+```
 
 The cause is high label cardinality in the source blocks. When this happens, the input blocks will be marked as `no-compact` by the compactor in order to prevent the next execution from being blocked.
 
@@ -813,7 +817,11 @@ If this happens once for a tenant when compacting 12 hour blocks into 24 hour bl
 
 #### Compaction is failing because of `index 64GiB size limit` (reason: `index-exceeds-64gib`)
 
-The compactor may fail to compact blocks due to the total size of the index file of the result block exceeding 64GiB. The index file contains the symbol table, series data, postings lists, label indices, and the postings offset table.
+The compactor may fail to compact blocks due to the total size of the index file of the result block exceeding 64GiB. The index file contains the symbol table, series data, postings lists, label indices, and the postings offset table:
+
+```
+ts=2025-12-23T00:37:18.252772Z caller=bucket_compactor.go:272 level=error component=compactor user=test groupKey=0@17241709254077376921-merge-7_of_16-1765497600000-1765584000000 job_type=merge minTime="2025-12-12 00:00:00 +0000 UTC" maxTime="2025-12-13 00:00:00 +0000 UTC" msg="compaction job failed" duration=5m54.874925125s duration_ms=354874 err="compact blocks 01KCA08M9RP54T810CKNQ0H4TZ,01KCBGA8D2WD2HV431NTFZ1M84: writing block: add series: \"index\" exceeding max size of 64GiB" block_count=2
+```
 
 The cause is that the source blocks contain too much data to fit in a single index file. This can be due to high label cardinality, a high number of series, or a combination of both. When this happens, the input blocks will be marked as `no-compact` by the compactor in order to prevent the next execution from being blocked.
 

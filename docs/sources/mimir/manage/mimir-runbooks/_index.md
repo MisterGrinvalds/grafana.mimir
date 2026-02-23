@@ -803,6 +803,22 @@ The cause is high label cardinality in the source blocks. When this happens, the
 
 If this happens once for a tenant when compacting 12 hour blocks into 24 hour blocks, it's possible they had increased cardinality just on that one day and we don't need to take corrective action. However, if this happens multiple times for a tenant, or is happening in earlier stages of compaction, you should increase the `compactor_split_and_merge_shards` for the tenant.
 
+#### Compaction is failing because of `symbol table size limit` (reason: `symbol-table-too-large`)
+
+The compactor may fail to compact blocks due to the size of the symbol table of the result block exceeding 4GiB (its length exceeds 4 bytes). The symbol table stores all unique strings (label names and label values) used in the index.
+
+The cause is high label cardinality in the source blocks. When this happens, the input blocks will be marked as `no-compact` by the compactor in order to prevent the next execution from being blocked.
+
+If this happens once for a tenant when compacting 12 hour blocks into 24 hour blocks, it's possible they had increased cardinality just on that one day and we don't need to take corrective action. However, if this happens multiple times for a tenant, or is happening in earlier stages of compaction, you should increase the `compactor_split_and_merge_shards` for the tenant.
+
+#### Compaction is failing because of `index 64GiB size limit` (reason: `index-exceeds-64gib`)
+
+The compactor may fail to compact blocks due to the total size of the index file of the result block exceeding 64GiB. The index file contains the symbol table, series data, postings lists, label indices, and the postings offset table.
+
+The cause is that the source blocks contain too much data to fit in a single index file. This can be due to high label cardinality, a high number of series, or a combination of both. When this happens, the input blocks will be marked as `no-compact` by the compactor in order to prevent the next execution from being blocked.
+
+To resolve this, increase the `compactor_split_and_merge_shards` for the tenant so that data is split across more blocks.
+
 ### MimirCompactorBuildingSparseIndexFailed
 
 This alert fires when the compactor fails to build some sparse index headers.

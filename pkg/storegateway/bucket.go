@@ -1978,7 +1978,12 @@ func (bss *loadedBlockSetStats) Remove(b *bucketBlock) {
 	bss.mu.Lock()
 	defer bss.mu.Unlock()
 	bss.loadedSizeBytes -= b.blockStats.sizeBytes()
-	bss.loadedCompactionLevels[b.meta.Compaction.Level]--
+	level := b.meta.Compaction.Level
+	if count := bss.loadedCompactionLevels[level]; count > 1 {
+		bss.loadedCompactionLevels[level]--
+	} else {
+		delete(bss.loadedCompactionLevels, level)
+	}
 }
 
 type loadedBlockStats struct {

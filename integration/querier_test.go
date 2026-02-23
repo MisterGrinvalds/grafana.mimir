@@ -180,10 +180,13 @@ func testQuerierWithBlocksStorageRunningInMicroservicesMode(t *testing.T, series
 			// the store-gateway ring if blocks sharding is enabled.
 			require.NoError(t, querier.WaitSumMetrics(e2e.Equals(float64(512+(512*storeGateways.NumInstances()))), "cortex_ring_tokens_total"))
 
-			// Wait until the store-gateway has synched the new uploaded blocks. When sharding is enabled
-			// we don't known which store-gateway instance will synch the blocks, so we need to wait on
-			// metrics extracted from all instances.
-			require.NoError(t, storeGateways.WaitSumMetrics(e2e.Equals(2), "cortex_bucket_store_blocks_loaded"))
+			// Wait until the store-gateway has synced the new uploaded blocks.
+			// The metric is not emitted when no blocks are synced,
+			// and when sharding is enabled we do not know which instance will own the blocks.
+			// Wait on sum across all instances but SkipMissingMetrics for the instance with no owned blocks.
+			require.NoError(t, storeGateways.WaitSumMetricsWithOptions(
+				e2e.Equals(2), []string{"cortex_bucket_store_blocks_loaded"}, e2e.SkipMissingMetrics),
+			)
 
 			// Check how many tenants have been discovered and synced by store-gateways.
 			require.NoError(t, storeGateways.WaitSumMetrics(e2e.Equals(float64(1*storeGateways.NumInstances())), "cortex_bucket_stores_tenants_discovered"))

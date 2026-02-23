@@ -83,6 +83,13 @@
       enabled: false,
     },
     {
+      description: 'Group all dependency updates touching mimir-build-image/Dockerfile into a single PR',
+      matchFileNames: [
+        'mimir-build-image/Dockerfile',
+      ],
+      groupName: 'mimir-build-image',
+    },
+    {
       // Update Go version everywhere at once: build image, go.mod and GitHub Actions workflows.
       matchDatasources: [
         'docker',

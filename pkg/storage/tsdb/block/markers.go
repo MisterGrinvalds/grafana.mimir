@@ -69,9 +69,6 @@ type NoCompactReason string
 const (
 	// ManualNoCompactReason is a custom reason of excluding from compaction that should be added when no-compact mark is added for unknown/user specified reason.
 	ManualNoCompactReason NoCompactReason = "manual"
-	// IndexSizeExceedingNoCompactReason is a reason of index being too big (for example exceeding 64GB limit: https://github.com/thanos-io/thanos/issues/1424)
-	// This reason can be ignored when vertical block sharding will be implemented.
-	IndexSizeExceedingNoCompactReason = "index-size-exceeding"
 	// OutOfOrderChunksNoCompactReason is a reason of to no compact block with index contains out of order chunk so that the compaction is not blocked.
 	OutOfOrderChunksNoCompactReason = "block-index-out-of-order-chunk"
 	// CriticalNoCompactReason is a reason of to no compact block that has some critical issue (e.g. corrupted index).

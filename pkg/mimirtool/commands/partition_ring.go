@@ -560,6 +560,11 @@ func addOwners(ctx context.Context, kvClient kv.Client, ownerIDs []string, state
 	return kvClient.CAS(ctx, ingester.PartitionRingKey, func(in interface{}) (out interface{}, retry bool, err error) {
 		ringDesc := ring.GetOrCreatePartitionRingDesc(in)
 
+		// Validate the target partition exists before making any changes.
+		if !ringDesc.HasPartition(partitionID) {
+			return nil, false, fmt.Errorf("partition %d does not exist in the ring", partitionID)
+		}
+
 		// First pass: validate ALL owners before making any changes.
 		for _, ownerID := range ownerIDs {
 			if ringDesc.HasOwner(ownerID) {

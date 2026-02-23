@@ -107,10 +107,8 @@ func TestJobTracker_Maintenance_Planning(t *testing.T) {
 	}
 
 	t.Run("returns error on persist failure", func(t *testing.T) {
-		clk := clock.NewMock()
-		clk.Set(at(3, 0))
 		metrics := newSchedulerMetrics(prometheus.NewPedanticRegistry())
-		jt := NewJobTracker(&errJobPersister{}, "test", clk, infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
+		jt := NewJobTracker(&errJobPersister{}, "test", clock.New(), infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
 
 		transition, err := jt.Maintenance(leaseDuration, false, planningInterval, compactionWaitPeriod)
 		require.Error(t, err)

@@ -101,6 +101,11 @@
       matchFileNames: [
         'mimir-build-image/Dockerfile',
       ],
+      excludePackageNames: [
+        'go',
+        'golang',
+        'actions/go-versions',
+      ],
       groupName: 'mimir-build-image',
     },
     {

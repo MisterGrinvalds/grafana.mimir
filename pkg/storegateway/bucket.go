@@ -1812,8 +1812,8 @@ func (s *bucketBlockSet) remove(id ulid.ULID) *bucketBlock {
 	b := val.(*bucketBlock)
 	s.blockSetStats.Remove(b)
 
-	for i, b := range s.blocks {
-		if b.meta.ULID != id {
+	for i, block := range s.blocks {
+		if block.meta.ULID != id {
 			continue
 		}
 		s.blocks = append(s.blocks[:i], s.blocks[i+1:]...)

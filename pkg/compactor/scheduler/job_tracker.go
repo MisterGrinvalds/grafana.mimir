@@ -12,7 +12,6 @@ import (
 	"unsafe"
 
 	"github.com/benbjohnson/clock"
-	"github.com/grafana/dskit/multierror"
 
 	"github.com/grafana/mimir/pkg/compactor/scheduler/compactorschedulerpb"
 )
@@ -194,25 +193,68 @@ func (jt *JobTracker) Maintenance(leaseDuration time.Duration, enforceLeaseExpir
 	defer jt.mtx.Unlock()
 
 	now := jt.clock.Now()
-	if enforceLeaseExpiration {
-		revived, expireErr := jt.expireLeases(leaseDuration, now)
-		addedPlan, planErr := jt.plan(planningInterval, compactionWaitPeriod, now)
-		return (revived || addedPlan), multierror.New(expireErr, planErr).Err()
-	}
-	return jt.plan(planningInterval, compactionWaitPeriod, now)
-}
 
-// expireLeases iterates through all the active jobs known by the JobTracker to find ones that have expired leases.
-// If a job has an expired lease and has been active under the maximum number of times, it is returned to the front of the queue
-// Otherwise a job with an expired lease will be removed from the tracker.
-// A write lock must be held in order to call this function.
-func (jt *JobTracker) expireLeases(leaseDuration time.Duration, now time.Time) (bool, error) {
+	var reviveJobs, deleteJobs []TrackedJob
+	if enforceLeaseExpiration {
+		reviveJobs, deleteJobs = jt.computeLeaseExpiration(leaseDuration, now)
+	}
+
+	// Note: a plan job will never be created if there is already an active plan job (even if we're about to expire a lease).
+	// Therefore lease expiration and planning are mutually exclusive.
+	planJob := jt.computePlan(planningInterval, compactionWaitPeriod, now)
+
+	if len(reviveJobs) == 0 && len(deleteJobs) == 0 && planJob == nil {
+		return false, nil
+	}
+
+	writes := reviveJobs
+	if planJob != nil {
+		writes = append(writes, planJob)
+	}
+	if err := jt.persister.WriteAndDeleteJobs(writes, deleteJobs); err != nil {
+		return false, fmt.Errorf("failed persisting during job tracker maintenance: %w", err)
+	}
+
 	wasEmpty := jt.isPendingEmpty()
 
+	for _, j := range reviveJobs {
+		id := j.ID()
+		// This only needs to be checked in the revive case due to plan jobs never respecting a maximum number of leases
+		if id == planJobId {
+			jt.stopTrackingCompleteCompactionJobs()
+		}
+
+		jt.active.Remove(jt.incompleteJobs[id])
+		jt.incompleteJobs[id] = jt.pending.PushFront(j)
+	}
+
+	for _, j := range deleteJobs {
+		if j.IsLeased() {
+			jt.active.Remove(jt.incompleteJobs[j.ID()])
+			delete(jt.incompleteJobs, j.ID())
+		}
+	}
+
+	if planJob != nil {
+		jt.incompleteJobs[planJobId] = jt.pending.PushBack(planJob)
+		// Drop the previous completion time since there is now a pending job that overwrote it
+		jt.completePlanTime = time.Time{}
+	}
+
+	jt.metrics.activeJobs.Set(float64(jt.active.Len()))
+	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
+
+	return wasEmpty && !jt.isPendingEmpty(), nil
+}
+
+// computeLeaseExpiration iterates through all the active jobs known by the JobTracker to find ones that have expired leases.
+// If a job has an expired lease and has been active under the maximum number of times, it will be returned to the front of the queue.
+// Otherwise a job with an expired lease will be removed from the tracker.
+// This function only computes what needs to change without persisting or modifying in-memory state.
+// A write lock must be held in order to call this function.
+func (jt *JobTracker) computeLeaseExpiration(leaseDuration time.Duration, now time.Time) (reviveJobs, deleteJobs []TrackedJob) {
 	var e, next *list.Element
 
-	var deleteJobs []TrackedJob
-	var reviveJobs []TrackedJob
 	for e = jt.active.Front(); e != nil; e = next {
 		next = e.Next() // get the next element now since it can't be done after removal
 
@@ -239,46 +281,17 @@ func (jt *JobTracker) expireLeases(leaseDuration time.Duration, now time.Time) (
 		}
 	}
 
-	if len(deleteJobs) == 0 && len(reviveJobs) == 0 {
-		return false, nil
-	}
-
-	err := jt.persister.WriteAndDeleteJobs(reviveJobs, deleteJobs)
-	if err != nil {
-		return false, fmt.Errorf("failed persisting expiration: %w", err)
-	}
-
-	for _, j := range reviveJobs {
-		id := j.ID()
-		// This only needs to be checked in the revive case due to plan jobs never respecting a maximum number of leases
-		if id == planJobId {
-			jt.stopTrackingCompleteCompactionJobs()
-		}
-
-		jt.active.Remove(jt.incompleteJobs[id])
-		jt.incompleteJobs[id] = jt.pending.PushFront(j)
-	}
-
-	for _, j := range deleteJobs {
-		if j.IsLeased() {
-			jt.active.Remove(jt.incompleteJobs[j.ID()])
-			delete(jt.incompleteJobs, j.ID())
-		}
-	}
-
-	jt.metrics.activeJobs.Set(float64(jt.active.Len()))
-	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
-
-	return wasEmpty && len(reviveJobs) > 0, nil
+	return reviveJobs, deleteJobs
 }
 
-// plan enqueues plan jobs for the time windows determined by planningInterval.
+// computePlan determines if a new plan job should be created for the time window determined by planningInterval.
 // compactionWaitPeriod is the period of time compactors wait before compacting L1 blocks.
+// This function only computes what needs to change without persisting or modifying in-memory state.
 // A write lock must be held in order to call this function.
-func (jt *JobTracker) plan(planningInterval, compactionWaitPeriod time.Duration, now time.Time) (bool, error) {
+func (jt *JobTracker) computePlan(planningInterval, compactionWaitPeriod time.Duration, now time.Time) *TrackedPlanJob {
 	if _, ok := jt.incompleteJobs[planJobId]; ok {
 		// There is already a plan job
-		return false, nil
+		return nil
 	}
 
 	// L1 blocks are expected on even UTC hours and the planning for them is affected by the compaction wait period.
@@ -287,21 +300,10 @@ func (jt *JobTracker) plan(planningInterval, compactionWaitPeriod time.Duration,
 
 	if now.Before(nextPlanningWindow) {
 		// This window has already been planned
-		return false, nil
+		return nil
 	}
 
-	job := NewTrackedPlanJob(jt.clock.Now())
-	if err := jt.persister.WriteJob(job); err != nil {
-		return false, err
-	}
-
-	// Drop the previous completion time since there is now a pending job that overwrote it
-	jt.completePlanTime = time.Time{}
-
-	wasEmpty := jt.isPendingEmpty()
-	jt.incompleteJobs[planJobId] = jt.pending.PushBack(job)
-	jt.metrics.pendingJobs.Set(float64(jt.pending.Len()))
-	return wasEmpty, nil
+	return NewTrackedPlanJob(now)
 }
 
 // RenewLease renews a lease to prevent it from being expired. This is intentionally not persisted. A buffer time is used across restarts instead.

@@ -33,9 +33,12 @@ func newTestJobTracker(t *testing.T, clk clock.Clock) *JobTracker {
 
 type errJobPersister struct{ NopJobPersister }
 
-func (e *errJobPersister) WriteJob(_ TrackedJob) error { return errors.New("write failed") }
+func (e *errJobPersister) WriteAndDeleteJobs([]TrackedJob, []TrackedJob) error {
+	return errors.New("write failed")
+}
 
-func TestJobTracker_plan(t *testing.T) {
+func TestJobTracker_Maintenance_Planning(t *testing.T) {
+	leaseDuration := time.Minute // value does not matter
 	planningInterval := time.Hour
 	compactionWaitPeriod := 15 * time.Minute
 
@@ -83,12 +86,14 @@ func TestJobTracker_plan(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			jt := newTestJobTracker(t, clock.NewMock())
+			clk := clock.NewMock()
+			clk.Set(tc.now)
+			jt := newTestJobTracker(t, clk)
 			if tc.setup != nil {
 				tc.setup(jt)
 			}
 
-			transition, err := jt.plan(planningInterval, compactionWaitPeriod, tc.now)
+			transition, err := jt.Maintenance(leaseDuration, false, planningInterval, compactionWaitPeriod)
 			require.NoError(t, err)
 
 			if tc.expectedPlan {
@@ -102,10 +107,12 @@ func TestJobTracker_plan(t *testing.T) {
 	}
 
 	t.Run("returns error on persist failure", func(t *testing.T) {
+		clk := clock.NewMock()
+		clk.Set(at(3, 0))
 		metrics := newSchedulerMetrics(prometheus.NewPedanticRegistry())
-		jt := NewJobTracker(&errJobPersister{}, "test", clock.NewMock(), infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
+		jt := NewJobTracker(&errJobPersister{}, "test", clk, infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
 
-		transition, err := jt.plan(planningInterval, compactionWaitPeriod, at(3, 0))
+		transition, err := jt.Maintenance(leaseDuration, false, planningInterval, compactionWaitPeriod)
 		require.Error(t, err)
 		require.False(t, transition)
 		require.NotContains(t, jt.incompleteJobs, planJobId)

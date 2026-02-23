@@ -56,29 +56,14 @@ func TestJobTracker_plan(t *testing.T) {
 			},
 			now: at(3, 0),
 		},
-		"skips when before next odd-hour window": {
+		"skips within compaction wait period": {
 			setup: func(jt *JobTracker) {
-				// 2:30 + 1h = 3:30, truncate to 1h = 3:00 (odd, no compactionWaitPeriod)
-				jt.completePlanTime = at(2, 30)
-			},
-			now: at(2, 45),
-		},
-		"plans at odd-hour window": {
-			setup: func(jt *JobTracker) {
-				jt.completePlanTime = at(2, 30)
-			},
-			now:                at(3, 0),
-			expectedPlan:       true,
-			expectedTransition: true,
-		},
-		"skips within compaction wait period on even-hour window": {
-			setup: func(jt *JobTracker) {
-				// 3:30 + 1h = 4:30, truncate to 1h = 4:00 (even), so 4:00 + compactionWaitPeriod
+				// 3:30 + 1h = 4:30, truncate to 1h = 4:00, so 4:00 + compactionWaitPeriod
 				jt.completePlanTime = at(3, 30)
 			},
 			now: at(4, 0).Add(compactionWaitPeriod - time.Minute),
 		},
-		"plans after compaction wait period on even-hour window": {
+		"plans after compaction wait period": {
 			setup: func(jt *JobTracker) {
 				jt.completePlanTime = at(3, 30)
 			},

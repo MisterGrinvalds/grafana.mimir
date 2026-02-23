@@ -51,7 +51,7 @@ type Config struct {
 func (cfg *Config) RegisterFlags(f *flag.FlagSet) {
 	f.IntVar(&cfg.maxLeases, "compactor-scheduler.max-leases", 3, "The maximum number of times a job can be retried from the same plan before it is removed. 0 for no limit.")
 	f.DurationVar(&cfg.leaseDuration, "compactor-scheduler.lease-duration", 10*time.Minute, "The duration of time without contact until the scheduler is able to lease a work item to another worker.")
-	f.DurationVar(&cfg.planningInterval, "compactor-scheduler.planning-interval", 1*time.Hour, "The duration of time between when plan jobs are submitted aligned by UTC. May be offset by the compaction wait period.")
+	f.DurationVar(&cfg.planningInterval, "compactor-scheduler.planning-interval", 1*time.Hour, "The duration of time between when plan jobs are submitted aligned by UTC. Note that -compactor.first-level-compaction-wait-period is accounted for during alignment of this interval.")
 	f.DurationVar(&cfg.maintenanceInterval, "compactor-scheduler.maintenance-interval", 3*time.Minute, "The duration of time between when maintenance tasks are performed on job trackers. This includes lease expiration and plan job submission checks.")
 	f.IntVar(&cfg.maintenanceIntervalsBeforeLeaseExpiration, "compactor-scheduler.maintenance-intervals-before-lease-expiration", 2, "The number of maintenance intervals before lease expiration is enforced. Nonpositive values are all treated as zero.")
 	f.DurationVar(&cfg.tenantDiscoveryInterval, "compactor-scheduler.tenant-discovery-interval", 10*time.Minute, "The duration of time between bucket listings to discover new tenants.")

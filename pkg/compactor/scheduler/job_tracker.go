@@ -12,8 +12,8 @@ import (
 	"unsafe"
 
 	"github.com/benbjohnson/clock"
-
 	"github.com/grafana/dskit/multierror"
+
 	"github.com/grafana/mimir/pkg/compactor/scheduler/compactorschedulerpb"
 )
 
@@ -189,7 +189,7 @@ func (jt *JobTracker) Remove(id string, epoch int64, complete bool) (removed boo
 	return true, jt.isPendingEmpty(), nil
 }
 
-func (jt *JobTracker) Maintenance(leaseDuration time.Duration, enforceLeaseExpiration bool, planningInterval time.Duration, compactionWaitPeriod time.Duration) (bool, error) {
+func (jt *JobTracker) Maintenance(leaseDuration time.Duration, enforceLeaseExpiration bool, planningInterval, compactionWaitPeriod time.Duration) (bool, error) {
 	jt.mtx.Lock()
 	defer jt.mtx.Unlock()
 
@@ -281,12 +281,10 @@ func (jt *JobTracker) plan(planningInterval, compactionWaitPeriod time.Duration,
 		return false, nil
 	}
 
-	nextPlanningWindow := jt.completePlanTime.Add(planningInterval).UTC().Truncate(planningInterval)
+	// L1 blocks are expected on even hours so account for the compaction wait period.
+	// That would only be on even UTC hours, but accounting for it all the time allows a better spread.
+	nextPlanningWindow := jt.completePlanTime.Add(planningInterval).UTC().Truncate(planningInterval).Add(compactionWaitPeriod)
 
-	if nextPlanningWindow.Hour()%2 == 0 {
-		// L1 blocks are expected on even hours so account for the compaction wait period
-		nextPlanningWindow = nextPlanningWindow.Add(compactionWaitPeriod)
-	}
 	if now.Before(nextPlanningWindow) {
 		// This window has already been planned
 		return false, nil

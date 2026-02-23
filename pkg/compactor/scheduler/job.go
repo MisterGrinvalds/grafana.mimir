@@ -4,7 +4,6 @@ package scheduler
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/rand"
 	"time"
@@ -221,19 +220,6 @@ func (j *TrackedPlanJob) ToLeaseResponse(tenant string) *compactorschedulerpb.Le
 
 func (j *TrackedPlanJob) Order() uint32 {
 	return math.MaxUint32
-}
-
-func deserializeJob(k []byte, v []byte) (TrackedJob, error) {
-	if len(k) == reservedJobIdLen {
-		sk := string(k[0])
-		switch sk {
-		case planJobId:
-			return deserializePlanJob(v)
-		default:
-			return nil, fmt.Errorf("unknown key: %s", sk)
-		}
-	}
-	return deserializeCompactionJob(k, v)
 }
 
 func deserializePlanJob(content []byte) (*TrackedPlanJob, error) {

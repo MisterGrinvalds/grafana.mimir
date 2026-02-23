@@ -79,7 +79,7 @@ func (m *BboltJobPersistenceManager) DeleteTenant(tenant string) error {
 }
 
 func (m *BboltJobPersistenceManager) RecoverAll(allowedTenants *util.AllowList, jobTrackerFactory func(tenant string, persister JobPersister) *JobTracker) (map[string]*JobTracker, error) {
-	recovered := make(map[string]*JobTracker)
+	jobTrackers := make(map[string]*JobTracker)
 	numJobsRecovered := 0
 
 	level.Info(m.logger).Log("msg", "starting job recovery")
@@ -95,7 +95,7 @@ func (m *BboltJobPersistenceManager) RecoverAll(allowedTenants *util.AllowList, 
 			}
 			if !allowedTenants.IsAllowed(tenant) {
 				// This tenant is no longer allowed, remove their bucket
-				level.Warn(m.logger).Log("msg", "deleting bbolt bucket of tenant no longer allowed", "tenant", tenant)
+				level.Warn(m.logger).Log("msg", "deleting bbolt bucket of tenant no longer allowed", "user", tenant)
 				return tx.DeleteBucket(name)
 			}
 
@@ -108,7 +108,7 @@ func (m *BboltJobPersistenceManager) RecoverAll(allowedTenants *util.AllowList, 
 			jp := newBboltJobPersister(m.db, []byte(tenant), m.logger)
 			jt := jobTrackerFactory(tenant, jp)
 			jt.recoverFrom(compactionJobs, planJob)
-			recovered[tenant] = jt
+			jobTrackers[tenant] = jt
 			return nil
 		})
 	})
@@ -116,8 +116,8 @@ func (m *BboltJobPersistenceManager) RecoverAll(allowedTenants *util.AllowList, 
 		level.Error(m.logger).Log("msg", "failed job recovery", "err", err)
 		return nil, err
 	}
-	level.Info(m.logger).Log("msg", "completed job recovery", "num_tenants_recovered", len(recovered), "num_jobs_recovered", numJobsRecovered)
-	return recovered, nil
+	level.Info(m.logger).Log("msg", "completed job recovery", "num_tenants_recovered", len(jobTrackers), "num_jobs_recovered", numJobsRecovered)
+	return jobTrackers, nil
 }
 
 func jobsFromTenantBucket(tenant string, bucket *bbolt.Bucket, logger log.Logger) ([]*TrackedCompactionJob, *TrackedPlanJob) {

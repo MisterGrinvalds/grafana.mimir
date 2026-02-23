@@ -11,7 +11,7 @@ import (
 
 // supplierFunc should return either a non-nil body or a non-nil error. The returned cleanup function can be nil.
 // uncompressedBodySize is the size of the original request body before any conversion (e.g., RW2 to RW1, OTLP to Prometheus).
-// It may be 0 if the size is not available (e.g., for gRPC push or tests).
+// It may be 0 if unknown.
 type supplierFunc func() (req *mimirpb.WriteRequest, cleanup func(), uncompressedBodySize int, err error)
 
 // Request represents a push request. It allows lazy body reading from the underlying http request
@@ -36,7 +36,7 @@ type Request struct {
 	contentLength int64
 
 	// uncompressedBodySize is the uncompressed request body size (wire bytes before any conversion).
-	// It may be 0 if not available (e.g., for gRPC push or tests).
+	// It may be 0 if unknown.
 	uncompressedBodySize int
 }
 
@@ -49,9 +49,9 @@ func newRequest(p supplierFunc) *Request {
 	return r
 }
 
-func NewParsedRequest(r *mimirpb.WriteRequest) *Request {
+func NewParsedRequest(r *mimirpb.WriteRequest, uncompressedBodySize int) *Request {
 	return newRequest(func() (*mimirpb.WriteRequest, func(), int, error) {
-		return r, nil, 0, nil // uncompressedBodySize=0 for pre-parsed requests (gRPC path)
+		return r, nil, uncompressedBodySize, nil
 	})
 }
 
@@ -76,7 +76,7 @@ func (r *Request) WriteRequest() (*mimirpb.WriteRequest, error) {
 }
 
 // UncompressedBodySize returns the uncompressed request body size (wire bytes before any conversion).
-// Returns 0 if not available (e.g., for gRPC push or tests).
+// Returns 0 if unknown.
 func (r *Request) UncompressedBodySize() int {
 	r.initWriteRequest()
 	return r.uncompressedBodySize

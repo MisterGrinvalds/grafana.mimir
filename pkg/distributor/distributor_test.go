@@ -5206,7 +5206,7 @@ func TestHaDedupeMiddleware(t *testing.T) {
 
 			var gotErrs []error
 			for _, req := range tc.reqs {
-				pushReq := NewParsedRequest(req)
+				pushReq := NewParsedRequest(req, req.Size())
 				pushReq.AddCleanup(cleanup)
 				err := middleware(tc.ctx, pushReq)
 				handledErr := err
@@ -5276,7 +5276,7 @@ func TestInstanceLimitsBeforeHaDedupe(t *testing.T) {
 
 	// If we HA deduplication runs before instance limits check,
 	// then this would set replica for the cluster.
-	err := wrappedMockPush(ctx, NewParsedRequest(writeReqReplica1))
+	err := wrappedMockPush(ctx, NewParsedRequest(writeReqReplica1, writeReqReplica1.Size()))
 	require.ErrorIs(t, err, errMaxInflightRequestsReached)
 
 	// Simulate no other inflight request.
@@ -5285,7 +5285,7 @@ func TestInstanceLimitsBeforeHaDedupe(t *testing.T) {
 	// We now send request from second replica.
 	// If HA deduplication middleware ran before instance limits check, then replica would be already set,
 	// and HA deduplication would return 202 status code for this request instead.
-	err = wrappedMockPush(ctx, NewParsedRequest(writeReqReplica2))
+	err = wrappedMockPush(ctx, NewParsedRequest(writeReqReplica2, writeReqReplica2.Size()))
 	require.NoError(t, err)
 
 	// Check that the write requests which have been submitted to the push function look as expected,
@@ -5436,7 +5436,7 @@ func TestRelabelMiddleware(t *testing.T) {
 
 			var gotErrs []bool
 			for _, req := range tc.reqs {
-				pushReq := NewParsedRequest(req)
+				pushReq := NewParsedRequest(req, req.Size())
 				pushReq.AddCleanup(cleanup)
 				err := middleware(tc.ctx, pushReq)
 				gotErrs = append(gotErrs, err != nil)
@@ -5511,7 +5511,7 @@ func TestSortAndFilterMiddleware(t *testing.T) {
 
 			var gotErrs []bool
 			for _, req := range tc.reqs {
-				pushReq := NewParsedRequest(req)
+				pushReq := NewParsedRequest(req, req.Size())
 				pushReq.AddCleanup(cleanup)
 				err := middleware(tc.ctx, pushReq)
 				gotErrs = append(gotErrs, err != nil)
@@ -8060,7 +8060,7 @@ func TestSeriesAreShardedToCorrectIngesters(t *testing.T) {
 	ctx := user.InjectOrgID(context.Background(), userName)
 	// skip all the middlewares, just do the push
 	distrib := d[0]
-	err := distrib.push(ctx, NewParsedRequest(req))
+	err := distrib.push(ctx, NewParsedRequest(req, req.Size()))
 	require.NoError(t, err)
 
 	// Verify that each ingester only received series and metadata that it should receive.
@@ -8503,7 +8503,7 @@ func TestDistributor_StartFinishRequest(t *testing.T) {
 				}
 			}
 
-			err := wrappedPush(ctx, NewParsedRequest(pushReq))
+			err := wrappedPush(ctx, NewParsedRequest(pushReq, pushReq.Size()))
 			if tc.expectedPushError == nil {
 				require.NoError(t, err)
 			} else {
@@ -9260,7 +9260,7 @@ func Test_outerMaybeDelayMiddleware(t *testing.T) {
 				ctx = user.InjectOrgID(ctx, tc.userID)
 			}
 			wrappedPush := distributor.outerMaybeDelayMiddleware(p)
-			err := wrappedPush(ctx, NewParsedRequest(&mimirpb.WriteRequest{}))
+			err := wrappedPush(ctx, NewParsedRequest(&mimirpb.WriteRequest{}, 0))
 			require.NoError(t, err)
 
 			// Due to the 10% jitter we need to take into account that the number will not be deterministic in tests.

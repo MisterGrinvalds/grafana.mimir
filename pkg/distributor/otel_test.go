@@ -1381,6 +1381,9 @@ func TestHandlerOTLPPush(t *testing.T) {
 		assert.Equal(t, "metric_help", metadata[0].GetHelp())
 		assert.Equal(t, "metric_unit", metadata[0].GetUnit())
 
+		// Verify UncompressedBodySize is set (wire bytes before OTLP->Prometheus conversion).
+		assert.Greater(t, pushReq.UncompressedBodySize(), 0, "UncompressedBodySize should be set for OTLP requests")
+
 		return nil
 	}
 

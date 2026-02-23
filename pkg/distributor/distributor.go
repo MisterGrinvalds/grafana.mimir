@@ -2373,8 +2373,7 @@ func (d *Distributor) updateReceivedMetrics(ctx context.Context, pushReq *Reques
 	d.receivedMetadata.WithLabelValues(userID).Add(float64(receivedMetadata))
 
 	// Use the uncompressed body size (original wire bytes).
-	// This properly accounts for RW2/OTLP requests where the internal WriteRequest
-	// is larger than the original wire format due to symbol table expansion.
+	// This properly accounts for different protocols (e.g., RW2, OTLP).
 	reqSize := pushReq.UncompressedBodySize()
 	if reqSize == 0 {
 		// Fallback if unknown.

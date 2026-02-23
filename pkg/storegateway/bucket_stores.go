@@ -618,9 +618,12 @@ func (u *BucketStores) Collect(metrics chan<- prometheus.Metric) {
 
 	// Block sizes by userID.
 	blockSizes := make(map[string]int64, len(u.stores))
-	// Block compaction levels, summed for all users;
-	// init with enough compaction level buckets to minimize allocations from expansion.
+	// Block compaction levels, summed for all users.
+	// Init with enough compaction level buckets to minimize allocations from expansion.
 	blockCompactionLevels := make(map[int]int, 20)
+	// Init entry so metric is always emitted;
+	// Choose compaction level 1 as it is the lowest compaction level discovered by store-gateways.
+	blockCompactionLevels[1] = 0
 
 	for userID, store := range u.stores {
 		stats := store.Stats()

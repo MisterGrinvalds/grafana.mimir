@@ -1757,7 +1757,7 @@ type bucketBlockSet struct {
 // The set currently does not support arbitrary ranges.
 func newBucketBlockSet() *bucketBlockSet {
 	return &bucketBlockSet{
-		blockSetStats: newLoadedBlockSetStats(),
+		blockSetStats: NewBlockSetStats(),
 	}
 }
 
@@ -1961,7 +1961,7 @@ type BlockSetStats struct {
 	loadedCompactionLevels map[int]int
 }
 
-func newLoadedBlockSetStats() *BlockSetStats {
+func NewBlockSetStats() *BlockSetStats {
 	return &BlockSetStats{
 		loadedSizeBytes:        0,
 		loadedCompactionLevels: make(map[int]int),

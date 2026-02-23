@@ -313,7 +313,8 @@ func (r *Rotator) Maintenance(ctx context.Context, enforceLeaseExpiration bool) 
 		transition, err := tenantState.tracker.Maintenance(r.leaseDuration, enforceLeaseExpiration, r.planningInterval, r.compactionWaitPeriod)
 		if err != nil {
 			level.Warn(r.logger).Log("msg", "background maintenance failed for job tracker", "user", tenant, "err", err)
-		} else if transition {
+		}
+		if transition {
 			addRotationFor = append(addRotationFor, tenant)
 		}
 	}

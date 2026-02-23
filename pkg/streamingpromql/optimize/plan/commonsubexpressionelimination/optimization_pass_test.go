@@ -1909,8 +1909,13 @@ func TestIsSafeToApplyFilteringAfter(t *testing.T) {
 
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalDisabled, commonsubexpressionelimination.IsSafeToApplyFilteringAfter(testCase.node, testCase.group, false))
-			require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalEnabled, commonsubexpressionelimination.IsSafeToApplyFilteringAfter(testCase.node, testCase.group, true))
+			safe, err := commonsubexpressionelimination.IsSafeToApplyFilteringAfter(testCase.node, testCase.group, false)
+			require.NoError(t, err)
+			require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalDisabled, safe)
+
+			safe, err = commonsubexpressionelimination.IsSafeToApplyFilteringAfter(testCase.node, testCase.group, true)
+			require.NoError(t, err)
+			require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalEnabled, safe)
 		})
 	}
 }
@@ -2125,14 +2130,14 @@ func TestIsSafeToApplyFilteringAfterFunction(t *testing.T) {
 			}
 
 			t.Run("delayed name removal disabled", func(t *testing.T) {
-				safe, knownFunction := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, testCase.group, false)
-				require.True(t, knownFunction)
+				safe, err := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, testCase.group, false)
+				require.NoError(t, err)
 				require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalDisabled, safe)
 			})
 
 			t.Run("delayed name removal enabled", func(t *testing.T) {
-				safe, knownFunction := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, testCase.group, true)
-				require.True(t, knownFunction)
+				safe, err := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, testCase.group, true)
+				require.NoError(t, err)
 				require.Equal(t, testCase.expectedSafeWithDelayedNameRemovalEnabled, safe)
 			})
 		})
@@ -2143,19 +2148,24 @@ func TestIsSafeToApplyFilteringAfterFunction_HandlesAllKnownFunctions(t *testing
 	group := commonsubexpressionelimination.SharedSelectorGroup{}
 
 	for name, function := range functions.Function_value {
-		if functions.Function(function) == functions.FUNCTION_UNKNOWN {
+		f := functions.Function(function)
+		if f == functions.FUNCTION_UNKNOWN {
 			continue
 		}
 
 		t.Run(name, func(t *testing.T) {
 			fn := &core.FunctionCall{
 				FunctionCallDetails: &core.FunctionCallDetails{
-					Function: functions.Function(function),
+					Function: f,
 				},
 			}
 
-			_, knownFunction := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, group, false)
-			require.True(t, knownFunction, "IsSafeToApplyFilteringAfterFunction does not know how to handle this function")
+			if f == functions.FUNCTION_LABEL_REPLACE || f == functions.FUNCTION_LABEL_JOIN {
+				fn.Args = []planning.Node{&core.VectorSelector{}, &core.StringLiteral{StringLiteralDetails: &core.StringLiteralDetails{Value: "the_label"}}}
+			}
+
+			_, err := commonsubexpressionelimination.IsSafeToApplyFilteringAfterFunction(fn, group, false)
+			require.NoError(t, err)
 		})
 	}
 }

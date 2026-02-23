@@ -402,7 +402,10 @@ func (e *OptimizationPass) groupPathsForSubsequentIteration(paths []path, offset
 // applyDeduplication replaces duplicate expressions at the tails of paths in group with a single expression.
 // It searches for duplicate expressions from offset, and returns the number of duplicates eliminated.
 func (e *OptimizationPass) applyDeduplication(group SharedSelectorGroup, offset int, delayedNameRemovalEnabled bool) (deduplicationStats, error) {
-	duplicatePathLength := e.findCommonSubexpressionLength(group, offset+1, delayedNameRemovalEnabled)
+	duplicatePathLength, err := e.findCommonSubexpressionLength(group, offset+1, delayedNameRemovalEnabled)
+	if err != nil {
+		return deduplicationStats{}, err
+	}
 
 	firstPath := group.Paths[0]
 	duplicatedExpression, timeRange := firstPath.NodeAtOffsetFromLeaf(duplicatePathLength - 1)
@@ -511,7 +514,7 @@ func (e *OptimizationPass) introduceDuplicateNode(group SharedSelectorGroup, dup
 // in group, starting at offset.
 // offset 0 means start from leaf of all paths.
 // If a non-zero offset is provided, then it is assumed all paths in group already have a common subexpression of length offset.
-func (e *OptimizationPass) findCommonSubexpressionLength(group SharedSelectorGroup, offset int, delayedNameRemovalEnabled bool) int {
+func (e *OptimizationPass) findCommonSubexpressionLength(group SharedSelectorGroup, offset int, delayedNameRemovalEnabled bool) (int, error) {
 	length := offset
 	firstPath := group.Paths[0]
 
@@ -519,14 +522,18 @@ func (e *OptimizationPass) findCommonSubexpressionLength(group SharedSelectorGro
 		firstNode, firstNodeTimeRange := firstPath.NodeAtOffsetFromLeaf(length)
 		firstSelector, _ := firstPath.NodeAtOffsetFromLeaf(0)
 
-		if group.hasSubsetSelectors() && !IsSafeToApplyFilteringAfter(firstNode, group, delayedNameRemovalEnabled) {
-			return length
+		if group.hasSubsetSelectors() {
+			if safe, err := IsSafeToApplyFilteringAfter(firstNode, group, delayedNameRemovalEnabled); err != nil {
+				return -1, err
+			} else if !safe {
+				return length, nil
+			}
 		}
 
 		for _, path := range group.Paths[1:] {
 			if length >= len(path) {
 				// We've reached the end of this path, so the longest common subexpression is the length of this path.
-				return length
+				return length, nil
 			}
 
 			otherNode, otherNodeTimeRange := path.NodeAtOffsetFromLeaf(length)
@@ -535,78 +542,77 @@ func (e *OptimizationPass) findCommonSubexpressionLength(group SharedSelectorGro
 				// eg. if the expression is "a + a":
 				// - if offset is 0 (group by leaf nodes): these are duplicates, group them together
 				// - if offset is 1 (group by parent of leaf nodes): same node, no duplication, don't group together
-				return length
+				return length, nil
 			}
 
 			otherSelector, _ := path.NodeAtOffsetFromLeaf(0)
 
 			if !equivalentNodes(firstNode, otherNode, firstSelector, otherSelector) || !firstNodeTimeRange.Equal(otherNodeTimeRange) {
 				// Nodes aren't the same, so the longest common subexpression is the length of the path not including the current node.
-				return length
+				return length, nil
 			}
 		}
 
 		length++
 	}
 
-	return length
+	return length, nil
 }
 
-func IsSafeToApplyFilteringAfter(node planning.Node, group SharedSelectorGroup, delayedNameRemovalEnabled bool) bool {
+func IsSafeToApplyFilteringAfter(node planning.Node, group SharedSelectorGroup, delayedNameRemovalEnabled bool) (bool, error) {
 	switch node := node.(type) {
 	case *core.Subquery:
 		// Subqueries return the inner series' labels as-is, so it's always safe to apply filtering afterwards.
-		return true
+		return true, nil
 
 	case *core.FunctionCall:
-		safe, _ := IsSafeToApplyFilteringAfterFunction(node, group, delayedNameRemovalEnabled)
-		return safe
+		return IsSafeToApplyFilteringAfterFunction(node, group, delayedNameRemovalEnabled)
 
 	case *core.UnaryExpression:
 		if delayedNameRemovalEnabled {
-			return true
+			return true, nil
 		}
 
-		return !group.haveAnyFiltersForLabel(model.MetricNameLabel)
+		return !group.haveAnyFiltersForLabel(model.MetricNameLabel), nil
 
 	case *core.AggregateExpression:
 		if node.Without {
 			// Safe to apply filtering provided 'without' will remove none of the filter labels.
 			for _, label := range node.Grouping {
 				if group.haveAnyFiltersForLabel(label) {
-					return false
+					return false, nil
 				}
 			}
 
 			if group.haveAnyFiltersForLabel(model.MetricNameLabel) {
 				// The __name__ label is always implicitly dropped, even if not given in the grouping labels,
 				// so we have to apply any filters on __name__ before the aggregation.
-				return false
+				return false, nil
 			}
 
-			return true
+			return true, nil
 		}
 
 		// Aggregation with 'by': safe to apply filtering provided all the filter labels appear in 'by'.
 		for _, filters := range group.Filters {
 			for _, filter := range filters {
 				if !slices.Contains(node.Grouping, filter.Name) {
-					return false
+					return false, nil
 				}
 			}
 		}
 
-		return true
+		return true, nil
 
 	// FIXME: we can apply filtering later for some binary operations (eg. vector/scalar combinations like foo{env="bar"} * 2)
 	// but these have been omitted for now in the interests of simplicity, as they're not common scenarios.
 
 	default:
-		return false
+		return false, nil
 	}
 }
 
-func IsSafeToApplyFilteringAfterFunction(functionCall *core.FunctionCall, group SharedSelectorGroup, delayedNameRemovalEnabled bool) (safe bool, knownFunction bool) {
+func IsSafeToApplyFilteringAfterFunction(functionCall *core.FunctionCall, group SharedSelectorGroup, delayedNameRemovalEnabled bool) (safe bool, err error) {
 	switch functionCall.Function {
 
 	case functions.FUNCTION_ABS,
@@ -677,7 +683,7 @@ func IsSafeToApplyFilteringAfterFunction(functionCall *core.FunctionCall, group 
 		// Functions that remove __name__ label if delayed name removal is disabled:
 		// - if delayed name removal is enabled: safe to apply filtering after the function call (as the function call will pass through all labels as-is)
 		// - if delayed name removal is disabled: safe if no filters on __name__
-		return delayedNameRemovalEnabled || !group.haveAnyFiltersForLabel(model.MetricNameLabel), true
+		return delayedNameRemovalEnabled || !group.haveAnyFiltersForLabel(model.MetricNameLabel), nil
 
 	case functions.FUNCTION_FIRST_OVER_TIME,
 		functions.FUNCTION_LAST_OVER_TIME,
@@ -689,69 +695,69 @@ func IsSafeToApplyFilteringAfterFunction(functionCall *core.FunctionCall, group 
 		functions.FUNCTION_SORT_BY_LABEL_DESC,
 		functions.FUNCTION_SHARDING_CONCAT:
 		// These functions return the labels as-is, so it's always safe to apply filtering after them.
-		return true, true
+		return true, nil
 
 	case functions.FUNCTION_SCALAR:
 		// It's never safe to apply filtering after scalar() as all labels are dropped in the transformation to
 		// a scalar value.
-		return false, true
+		return false, nil
 
 	case functions.FUNCTION_ABSENT, functions.FUNCTION_ABSENT_OVER_TIME:
 		// It's never safe to apply filtering after absent functions.
-		return false, true
+		return false, nil
 
 	case functions.FUNCTION_INFO:
 		// It's never safe to apply filtering after info() as we don't know if the labels from the data selector
 		// are overridden by the info selector.
-		return false, true
+		return false, nil
 
 	case functions.FUNCTION_LABEL_JOIN, functions.FUNCTION_LABEL_REPLACE:
 		// It's only safe to apply filtering after these functions if the destination label doesn't appear in the
 		// filters.
-		destinationLabelName, ok := extractDestinationLabel(functionCall)
-		if !ok {
-			return false, true
+		destinationLabelName, err := extractDestinationLabel(functionCall)
+		if err != nil {
+			return false, err
 		}
 
-		return !group.haveAnyFiltersForLabel(destinationLabelName), true
+		return !group.haveAnyFiltersForLabel(destinationLabelName), nil
 
 	case functions.FUNCTION_HISTOGRAM_FRACTION, functions.FUNCTION_HISTOGRAM_QUANTILE:
 		// These functions drop the 'le' label on native histograms, so we can never apply filtering after the function
 		// if the filter is on that label.
 		if group.haveAnyFiltersForLabel(model.BucketLabel) {
-			return false, true
+			return false, nil
 		}
 
 		// These functions drop the __name__ label if delayed name removal is not enabled, so it's only safe to apply
 		// filtering after these functions if delayed name removal is enabled, or there is no filtering by __name__.
 		if delayedNameRemovalEnabled {
-			return true, true
+			return true, nil
 		}
 
-		return !group.haveAnyFiltersForLabel(model.MetricNameLabel), true
+		return !group.haveAnyFiltersForLabel(model.MetricNameLabel), nil
 
 	case functions.FUNCTION_PI, functions.FUNCTION_VECTOR, functions.FUNCTION_TIME:
 		// These functions should never directly contain a selector, so this method should never be called for
 		// these functions, but return false to be safe.
-		return false, true
+		return false, nil
 
 	default:
-		return false, false
+		return false, fmt.Errorf("IsSafeToApplyFilteringAfterFunction: unknown function %s", functionCall.Function.PromQLName())
 	}
 }
 
 // extractDestinationLabel returns the destination label name for a label_join() or label_replace() call.
-func extractDestinationLabel(functionCall *core.FunctionCall) (string, bool) {
+func extractDestinationLabel(functionCall *core.FunctionCall) (string, error) {
 	if len(functionCall.Args) < 2 {
-		return "", false
+		return "", fmt.Errorf("expected %s call to have at least 2 arguments, got %d", functionCall.Function.PromQLName(), len(functionCall.Args))
 	}
 
 	destinationLabel, ok := functionCall.Args[1].(*core.StringLiteral)
 	if !ok {
-		return "", false
+		return "", fmt.Errorf("expected second argument of %s call to be a string literal, got %T", functionCall.Function.PromQLName(), functionCall.Args[1])
 	}
 
-	return destinationLabel.Value, true
+	return destinationLabel.Value, nil
 }
 
 func mergeHints(retainedNode planning.Node, eliminatedNode planning.Node) error {

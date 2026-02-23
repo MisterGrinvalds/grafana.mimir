@@ -48,6 +48,10 @@ Mimirtool is a command-line tool that operators and tenants can use to execute a
 
   For more information about the `backfill` command, refer to [Backfill](#backfill)
 
+- The `partition-ring` commands allow for forcefully modifying the ingest storage partition ring via memberlist.
+
+  For more information about the `partition-ring` command, refer to [Partition ring](#partition-ring)
+
 Mimirtool interacts with:
 
 - User-facing APIs provided by Grafana Mimir.
@@ -1197,6 +1201,118 @@ INFO[0001] finished uploading blocks                already_exists=1 failed=0 su
 {{< admonition type="note" >}}
 Backfilled data visibility depends on the sample timestamps in the uploaded blocks. Sometimes data can appear more than 12 hours after upload.
 {{< /admonition >}}
+
+### Partition ring
+
+The `partition-ring` command provides subcommands for forcefully modifying the ingest storage partition ring via memberlist. These commands are intended for emergency use only and bypass normal ingester lifecycle management.
+
+{{< admonition type="warning" >}}
+These are dangerous operations **not intended for production systems**. Modifying the partition ring directly can cause data loss or query failures if used incorrectly.
+{{< /admonition >}}
+
+All `partition-ring` subcommands require joining the memberlist cluster of the Grafana Mimir deployment. The tool must be able to reach at least one memberlist node via TCP and UDP.
+
+#### `add-partition`
+
+Forcefully adds one or more partitions to the partition ring.
+
+| Flag                         | Description                                                                                                 |
+| :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| `--partition.id`             | Required. Comma-separated list of partition IDs to add (must be >= 0).                                      |
+| `--partition.state`          | Required. State for the new partition(s). Must be one of: `pending`, `active`, `inactive`.                  |
+| `--memberlist.join`          | Required. Address of a memberlist node to join. Can be specified multiple times.                            |
+| `--memberlist.cluster-label` | The cluster label to use when joining the memberlist cluster.                                               |
+| `--memberlist.bind-port`     | Port to listen on for memberlist gossip messages. Default: `7946`. Use `0` to pick a random available port. |
+| `--verbose`                  | Enable verbose logging.                                                                                     |
+
+##### Example
+
+```bash
+mimirtool partition-ring add-partition \
+  --partition.id=39 \
+  --partition.state=active \
+  --memberlist.join=<ingester-pod-ip>:7946 \
+  --memberlist.cluster-label=<cluster>.<namespace> \
+  --memberlist.bind-port=0
+```
+
+#### `remove-partition`
+
+Forcefully removes one or more partitions from the partition ring. A partition cannot be removed if it still has owners; use `remove-owner` first.
+
+| Flag                         | Description                                                                                                 |
+| :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| `--partition.id`             | Required. Comma-separated list of partition IDs to remove (must be >= 0).                                   |
+| `--memberlist.join`          | Required. Address of a memberlist node to join. Can be specified multiple times.                            |
+| `--memberlist.cluster-label` | The cluster label to use when joining the memberlist cluster.                                               |
+| `--memberlist.bind-port`     | Port to listen on for memberlist gossip messages. Default: `7946`. Use `0` to pick a random available port. |
+| `--verbose`                  | Enable verbose logging.                                                                                     |
+
+##### Example
+
+```bash
+mimirtool partition-ring remove-partition \
+  --partition.id=39 \
+  --memberlist.join=<ingester-pod-ip>:7946 \
+  --memberlist.cluster-label=<cluster>.<namespace> \
+  --memberlist.bind-port=0
+```
+
+#### `add-owner`
+
+Forcefully adds one or more owners (ingester instances) to the partition ring, associating them with the specified partition.
+
+| Flag                         | Description                                                                                                 |
+| :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| `--owner.id`                 | Required. Comma-separated list of owner IDs (ingester instance names) to add.                               |
+| `--owner.partition`          | Required. The partition ID that the owner(s) will own (must be >= 0).                                       |
+| `--memberlist.join`          | Required. Address of a memberlist node to join. Can be specified multiple times.                            |
+| `--memberlist.cluster-label` | The cluster label to use when joining the memberlist cluster.                                               |
+| `--memberlist.bind-port`     | Port to listen on for memberlist gossip messages. Default: `7946`. Use `0` to pick a random available port. |
+| `--verbose`                  | Enable verbose logging.                                                                                     |
+
+##### Example
+
+```bash
+mimirtool partition-ring add-owner \
+  --owner.id=ingester-zone-a-0 \
+  --owner.partition=0 \
+  --memberlist.join=<ingester-pod-ip>:7946 \
+  --memberlist.cluster-label=<cluster>.<namespace> \
+  --memberlist.bind-port=0
+```
+
+#### `remove-owner`
+
+Forcefully removes one or more owners (ingester instances) from the partition ring. This is useful for cleaning up stale owner entries left behind when an ingester is removed without going through a normal shutdown.
+
+| Flag                         | Description                                                                                                 |
+| :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| `--owner.id`                 | Required. Comma-separated list of owner IDs (ingester instance names) to remove.                            |
+| `--memberlist.join`          | Required. Address of a memberlist node to join. Can be specified multiple times.                            |
+| `--memberlist.cluster-label` | The cluster label to use when joining the memberlist cluster.                                               |
+| `--memberlist.bind-port`     | Port to listen on for memberlist gossip messages. Default: `7946`. Use `0` to pick a random available port. |
+| `--verbose`                  | Enable verbose logging.                                                                                     |
+
+##### Example
+
+```bash
+mimirtool partition-ring remove-owner \
+  --owner.id=ingester-zone-c-38 \
+  --memberlist.join=<ingester-pod-ip>:7946 \
+  --memberlist.cluster-label=<cluster>.<namespace> \
+  --memberlist.bind-port=0
+```
+
+To remove multiple owners in one operation, pass a comma-separated list:
+
+```bash
+mimirtool partition-ring remove-owner \
+  --owner.id=ingester-zone-c-38,ingester-zone-c-39,ingester-zone-c-40 \
+  --memberlist.join=<ingester-pod-ip>:7946 \
+  --memberlist.cluster-label=<cluster>.<namespace> \
+  --memberlist.bind-port=0
+```
 
 ## License
 

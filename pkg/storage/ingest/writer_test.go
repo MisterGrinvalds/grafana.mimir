@@ -652,7 +652,8 @@ func TestWriter_WriteSync(t *testing.T) {
 		}
 
 		// Estimate the size of each record written in this test.
-		writeReqRecords, err := marshalWriteRequestToRecords(partitionID, tenantID, createWriteRequest(), maxProducerRecordDataBytesLimit, mimirpb.SplitWriteRequestByMaxMarshalSize)
+		writeReq := createWriteRequest()
+		writeReqRecords, err := marshalWriteRequestToRecords(partitionID, tenantID, writeReq, writeReq.Size(), maxProducerRecordDataBytesLimit, mimirpb.SplitWriteRequestByMaxMarshalSize)
 		require.NoError(t, err)
 		require.Len(t, writeReqRecords, 1)
 		estimatedRecordSize := len(writeReqRecords[0].Value)
@@ -933,7 +934,7 @@ func TestMarshalWriteRequestToRecords(t *testing.T) {
 
 	t.Run("should return 1 record if the input WriteRequest size is less than the size limit", func(t *testing.T) {
 		req := testReq(t)
-		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size()*2, mimirpb.SplitWriteRequestByMaxMarshalSize)
+		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), req.Size()*2, mimirpb.SplitWriteRequestByMaxMarshalSize)
 		require.NoError(t, err)
 		require.Len(t, records, 1)
 
@@ -946,7 +947,7 @@ func TestMarshalWriteRequestToRecords(t *testing.T) {
 
 	t.Run("should return 1 record if the input WriteRequest in RW2 size is less than the size limit", func(t *testing.T) {
 		req := testReqV2(t)
-		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size()*2, splitRequestVersionTwo)
+		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), req.Size()*2, splitRequestVersionTwo)
 		require.NoError(t, err)
 		require.Len(t, records, 1)
 
@@ -1008,7 +1009,7 @@ func TestMarshalWriteRequestToRecords(t *testing.T) {
 		const limit = 100
 		req := testReq(t)
 
-		records, err := marshalWriteRequestToRecords(1, "user-1", req, limit, mimirpb.SplitWriteRequestByMaxMarshalSize)
+		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), limit, mimirpb.SplitWriteRequestByMaxMarshalSize)
 		require.NoError(t, err)
 		require.Len(t, records, 4)
 
@@ -1052,7 +1053,7 @@ func TestMarshalWriteRequestToRecords(t *testing.T) {
 		const limit = 100
 		req := testReqV2(t)
 
-		records, err := marshalWriteRequestToRecords(1, "user-1", req, limit, splitRequestVersionTwo)
+		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), limit, splitRequestVersionTwo)
 		require.NoError(t, err)
 		require.Len(t, records, 3)
 
@@ -1141,7 +1142,7 @@ func TestMarshalWriteRequestToRecords(t *testing.T) {
 		const limit = 1
 		req := testReq(t)
 
-		records, err := marshalWriteRequestToRecords(1, "user-1", req, limit, mimirpb.SplitWriteRequestByMaxMarshalSize)
+		records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), limit, mimirpb.SplitWriteRequestByMaxMarshalSize)
 		require.NoError(t, err)
 		require.Len(t, records, 6)
 
@@ -1202,7 +1203,7 @@ func BenchmarkMarshalWriteRequestToRecords_NoSplitting(b *testing.B) {
 
 	b.Run("marshalWriteRequestToRecords()", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
-			records, err := marshalWriteRequestToRecords(1, "user-1", req, 1024*1024*1024, requestSplitter)
+			records, err := marshalWriteRequestToRecords(1, "user-1", req, req.Size(), 1024*1024*1024, requestSplitter)
 			if err != nil {
 				b.Fatal(err)
 			}

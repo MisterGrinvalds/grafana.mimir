@@ -155,11 +155,8 @@ func (w *Writer) WriteSync(ctx context.Context, partitionID int32, userID string
 		return nil
 	}
 
-	// Calculate input size before conversion to track the compression ratio.
-	inputSize := req.Size()
-
 	// Create records out of the write request.
-	records, err := w.serializer.ToRecords(partitionID, userID, req, w.kafkaCfg.ProducerMaxRecordSizeBytes)
+	records, inputSize, err := w.serializer.ToRecords(partitionID, userID, req, w.kafkaCfg.ProducerMaxRecordSizeBytes)
 	if err != nil {
 		return err
 	}
@@ -253,9 +250,7 @@ type requestSplitter func(req *mimirpb.WriteRequest, reqSize, maxSize int) []*mi
 // have their data size limited to maxSize. The reason is that the WriteRequest is split
 // by each individual Timeseries and Metadata: if a single Timeseries or Metadata is bigger than
 // maxSize, than the resulting record will be bigger than the limit as well.
-func marshalWriteRequestToRecords(partitionID int32, tenantID string, req *mimirpb.WriteRequest, maxSize int, split requestSplitter) ([]*kgo.Record, error) {
-	reqSize := req.Size()
-
+func marshalWriteRequestToRecords(partitionID int32, tenantID string, req *mimirpb.WriteRequest, reqSize, maxSize int, split requestSplitter) ([]*kgo.Record, error) {
 	if reqSize <= maxSize {
 		// No need to split the request. We can take a fast path.
 		rec, err := marshalWriteRequestToRecord(partitionID, tenantID, req, reqSize)

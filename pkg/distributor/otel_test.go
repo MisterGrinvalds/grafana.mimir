@@ -1381,9 +1381,6 @@ func TestHandlerOTLPPush(t *testing.T) {
 		assert.Equal(t, "metric_help", metadata[0].GetHelp())
 		assert.Equal(t, "metric_unit", metadata[0].GetUnit())
 
-		// Verify UncompressedBodySize is set (wire bytes before OTLP->Prometheus conversion).
-		assert.Greater(t, pushReq.UncompressedBodySize(), 0, "UncompressedBodySize should be set for OTLP requests")
-
 		return nil
 	}
 
@@ -1726,12 +1723,20 @@ func TestHandlerOTLPPush(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			exportReq := TimeseriesToOTLPRequest(tt.series, tt.metadata)
-			var req *http.Request
+
+			// Serialize the body to compute expected uncompressed size.
+			var reqBody []byte
+			var reqContentType string
 			if tt.requestContentType == jsonContentType {
-				req = createOTLPJSONRequest(t, exportReq, tt.compression)
+				reqBody, _ = exportReq.MarshalJSON()
+				reqContentType = jsonContentType
 			} else {
-				req = createOTLPProtoRequest(t, exportReq, tt.compression)
+				reqBody, _ = exportReq.MarshalProto()
+				reqContentType = pbContentType
 			}
+			expectedUncompressedBodySize := len(reqBody)
+
+			req := createOTLPRequest(t, reqBody, tt.compression, reqContentType)
 
 			testLimits := &validation.Limits{
 				PromoteOTelResourceAttributes: tt.promoteResourceAttributes,
@@ -1748,6 +1753,11 @@ func TestHandlerOTLPPush(t *testing.T) {
 			pusher := func(ctx context.Context, pushReq *Request) error {
 				t.Helper()
 				t.Cleanup(pushReq.CleanUp)
+				// Verify UncompressedBodySize matches the exact OTLP request body size (wire bytes before OTLP->Prometheus conversion).
+				// Only assert for successful requests; error cases may not have the size set.
+				if tt.responseCode/100 == 2 {
+					assert.Equal(t, expectedUncompressedBodySize, pushReq.UncompressedBodySize(), "UncompressedBodySize should match OTLP request body size")
+				}
 				return tt.verifyFunc(t, ctx, pushReq, tt)
 			}
 

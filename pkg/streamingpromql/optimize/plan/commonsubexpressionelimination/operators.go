@@ -39,11 +39,11 @@ func computeFilterBitmap(unfilteredSeries []types.SeriesMetadata, filters []*lab
 	return nextUnfilteredSeriesIndex, unfilteredSeriesBitmap, filteredSeriesCount, nil
 }
 
-func applyFiltering(unfilteredSeries []types.SeriesMetadata, bitmap []bool, filteredSeriesCount int, canReuseSlice bool, memoryConsumptionTracker *limiter.MemoryConsumptionTracker) ([]types.SeriesMetadata, error) {
+func applyFiltering(unfilteredSeries []types.SeriesMetadata, bitmap []bool, filteredSeriesCount int, isLastConsumer bool, memoryConsumptionTracker *limiter.MemoryConsumptionTracker) ([]types.SeriesMetadata, error) {
 	if bitmap == nil {
 		// Fast path: no filters to apply.
 
-		if canReuseSlice {
+		if isLastConsumer {
 			return unfilteredSeries, nil
 		}
 
@@ -79,7 +79,7 @@ func applyFiltering(unfilteredSeries []types.SeriesMetadata, bitmap []bool, filt
 		}
 	}
 
-	if canReuseSlice {
+	if isLastConsumer {
 		// It's simpler not to reuse the slice when filtering is involved, so return it to the pool now that we're done with it.
 		types.SeriesMetadataSlicePool.Put(&unfilteredSeries, memoryConsumptionTracker)
 	}

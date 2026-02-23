@@ -287,7 +287,7 @@ func (s *BucketStore) RemoveBlocksAndClose() error {
 }
 
 // Stats returns statistics about the BucketStore instance.
-func (s *BucketStore) Stats() loadedBlockSetStats {
+func (s *BucketStore) Stats() *loadedBlockSetStats {
 	return s.blockSet.blockSetStats
 }
 
@@ -1748,7 +1748,7 @@ type bucketBlockSet struct {
 	mtx           sync.RWMutex
 	blockSet      sync.Map       // Maps block's ulid.ULID to the *bucketBlock.
 	blocks        []*bucketBlock // Blocks sorted by mint, then maxt.
-	blockSetStats loadedBlockSetStats
+	blockSetStats *loadedBlockSetStats
 }
 
 // newBucketBlockSet initializes a new set with the known downsampling windows hard-configured.
@@ -1945,22 +1945,22 @@ type loadedBlockSetStats struct {
 	loadedCompactionLevels map[int]int
 }
 
-func newLoadedBlockSetStats() loadedBlockSetStats {
-	return loadedBlockSetStats{
+func newLoadedBlockSetStats() *loadedBlockSetStats {
+	return &loadedBlockSetStats{
 		loadedSizeBytes:        0,
 		loadedCompactionLevels: make(map[int]int),
 	}
 }
 
-func (bss loadedBlockSetStats) SizeBytes() int64 {
+func (bss *loadedBlockSetStats) SizeBytes() int64 {
 	return bss.loadedSizeBytes
 }
 
-func (bss loadedBlockSetStats) CompactionLevels() map[int]int {
+func (bss *loadedBlockSetStats) CompactionLevels() map[int]int {
 	return bss.loadedCompactionLevels
 }
 
-func (bss loadedBlockSetStats) Len() int {
+func (bss *loadedBlockSetStats) Len() int {
 	total := 0
 	for _, v := range bss.loadedCompactionLevels {
 		total += v
@@ -1968,12 +1968,12 @@ func (bss loadedBlockSetStats) Len() int {
 	return total
 }
 
-func (bss loadedBlockSetStats) Add(b *bucketBlock) {
+func (bss *loadedBlockSetStats) Add(b *bucketBlock) {
 	bss.loadedSizeBytes += b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]++
 }
 
-func (bss loadedBlockSetStats) Remove(b *bucketBlock) {
+func (bss *loadedBlockSetStats) Remove(b *bucketBlock) {
 	bss.loadedSizeBytes -= b.blockStats.sizeBytes()
 	bss.loadedCompactionLevels[b.meta.Compaction.Level]--
 }

@@ -48,10 +48,13 @@ func TestJobTracker_Maintenance_Planning(t *testing.T) {
 		expectedPlan       bool
 		expectedTransition bool
 	}{
-		"plans when there is no pending plan": {
-			now:                at(3, 0),
+		"plans at aligned window when there is no pending plan": {
+			now:                at(3, 0).Add(compactionWaitPeriod),
 			expectedPlan:       true,
 			expectedTransition: true,
+		},
+		"waits for alignment on fresh start": {
+			now: at(3, 0),
 		},
 		"skips when there is a pending plan": {
 			setup: func(jt *JobTracker) {
@@ -78,7 +81,7 @@ func TestJobTracker_Maintenance_Planning(t *testing.T) {
 			setup: func(jt *JobTracker) {
 				jt.pending.PushBack(NewTrackedCompactionJob("compactionId", &CompactionJob{}, 1, time.Now()))
 			},
-			now:                at(3, 0),
+			now:                at(3, 0).Add(compactionWaitPeriod),
 			expectedPlan:       true,
 			expectedTransition: false,
 		},
@@ -107,8 +110,10 @@ func TestJobTracker_Maintenance_Planning(t *testing.T) {
 	}
 
 	t.Run("returns error on persist failure", func(t *testing.T) {
+		clk := clock.NewMock()
+		clk.Set(at(3, 0).Add(compactionWaitPeriod))
 		metrics := newSchedulerMetrics(prometheus.NewPedanticRegistry())
-		jt := NewJobTracker(&errJobPersister{}, "test", clock.New(), infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
+		jt := NewJobTracker(&errJobPersister{}, "test", clk, infiniteLeases, metrics.newTrackerMetricsForTenant("test"))
 
 		transition, err := jt.Maintenance(leaseDuration, false, planningInterval, compactionWaitPeriod)
 		require.Error(t, err)

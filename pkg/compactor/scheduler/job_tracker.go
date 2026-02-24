@@ -207,11 +207,11 @@ func (jt *JobTracker) Maintenance(leaseDuration time.Duration, enforceLeaseExpir
 		return false, nil
 	}
 
-	writes := reviveJobs
+	writeJobs := reviveJobs
 	if planJob != nil {
-		writes = append(writes, planJob)
+		writeJobs = append(writeJobs, planJob)
 	}
-	if err := jt.persister.WriteAndDeleteJobs(writes, deleteJobs); err != nil {
+	if err := jt.persister.WriteAndDeleteJobs(writeJobs, deleteJobs); err != nil {
 		return false, fmt.Errorf("failed persisting during job tracker maintenance: %w", err)
 	}
 

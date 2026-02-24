@@ -1212,6 +1212,29 @@ These are dangerous operations **not intended for production systems**. Modifyin
 
 All `partition-ring` subcommands require joining the memberlist cluster of the Grafana Mimir deployment. The tool must be able to reach at least one memberlist node via TCP and UDP.
 
+For further information on how to run commands within a cell see [Debugging distroless containers in Kubernetes](https://github.com/grafana/deployment_tools/blob/master/docs/cortex/distroless-images.md#debugging-distroless-containers-in-kubernetes).
+
+An example of running `mimirtool` from within a debug container attached to a cell pod is as follows;
+
+```bash
+# Attach a debug container to an existing pod and shell into it
+kubectl -n <namespace> debug -it pod/<pod> --image=alpine:latest --target=ingester -c debug-container -ti -- sh
+
+# Copy over the `mimirtool` binary (make sure you have it compiled for the correct architecture)
+kubectl -n <namespace> cp ./mimirtool <pod>:/tmp/mimirtool -c debug-container
+
+# Find an ingester IP address and memberlist cluster label
+kubectl -n <namespace> get pods ingester-zone-a-0 -o yaml | grep podIP
+kubectl -n <namespace> get pods ingester-zone-a-0 -o yaml | grep memberlist.cluster
+
+# Run mimirtool (in the shell from the first step)
+cd /tmp
+chmod u+x mimirtool
+./mimirtool partition-ring remove-owner --owner.id=ingester-zone-c-40 --memberlist.join=<ingester-ip>:7946 --memberlist.cluster-label=<memberlist-cluster-label> --memberlist.bind-port=0
+```
+
+See [Cleanup and Limitations](https://github.com/grafana/deployment_tools/blob/master/docs/cortex/distroless-images.md#cleanup-and-limitations) after finishing with the debug container.
+
 #### `add-partition`
 
 Forcefully adds one or more partitions to the partition ring.

@@ -449,8 +449,7 @@ func TestAddOwnerCommand(t *testing.T) {
 			memberlistJoin:     []string{seedAddr},
 			memberlistBindPort: 0,
 			ownerIDs:           "ingester-zone-a-0",
-
-			ownerPartition: 0,
+			partitionID:    "0",
 			stdin:          strings.NewReader("yes\n"),
 			logger:         log.NewNopLogger(),
 		}
@@ -501,8 +500,7 @@ func TestAddOwnerCommand(t *testing.T) {
 			memberlistJoin:     []string{seedAddr},
 			memberlistBindPort: 0,
 			ownerIDs:           "ingester-zone-a-0",
-
-			ownerPartition: 0,
+			partitionID:    "0",
 			stdin:          strings.NewReader("yes\n"),
 			logger:         log.NewNopLogger(),
 		}
@@ -535,8 +533,7 @@ func TestAddOwnerCommand(t *testing.T) {
 			memberlistJoin:     []string{seedAddr},
 			memberlistBindPort: 0,
 			ownerIDs:           "ingester-zone-a-0,ingester-zone-b-0",
-
-			ownerPartition: 0,
+			partitionID:    "0",
 			stdin:          strings.NewReader("yes\n"),
 			logger:         log.NewNopLogger(),
 		}
@@ -583,8 +580,7 @@ func TestAddOwnerCommand(t *testing.T) {
 			memberlistJoin:     []string{seedAddr},
 			memberlistBindPort: 0,
 			ownerIDs:           "ingester-zone-a-0,ingester-zone-b-0",
-
-			ownerPartition: 0,
+			partitionID:    "0",
 			stdin:          strings.NewReader("yes\n"),
 			logger:         log.NewNopLogger(),
 		}

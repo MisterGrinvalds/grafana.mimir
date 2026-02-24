@@ -58,7 +58,7 @@ type AddOwnerCommand struct {
 	memberlistClusterLabel string
 	memberlistBindPort     int
 	ownerIDs               string
-	ownerPartition         int
+	partitionID            string
 	verbose                bool
 	logger                 log.Logger
 	stdin                  io.Reader // For testing; defaults to os.Stdin if nil.
@@ -119,10 +119,6 @@ func (c *PartitionRingCommand) Register(app *kingpin.Application, _ EnvVarNames,
 			return addOwnerCmd.run()
 		})
 
-	addOwnerCmdClause.Flag("owner.partition", "The partition ID that the owner owns (must be >= 0).").
-		Required().
-		IntVar(&addOwnerCmd.ownerPartition)
-
 	// Register remove-owner subcommand.
 	removeOwnerCmd := &RemoveOwnerCommand{}
 	removeOwnerCmdClause := partitionRingCmd.Command("remove-owner", "Forcefully remove an owner from the ingest storage partition ring.").
@@ -135,55 +131,46 @@ func (c *PartitionRingCommand) Register(app *kingpin.Application, _ EnvVarNames,
 			return removeOwnerCmd.run()
 		})
 
-	// Register common flags on partition subcommands.
+	// Register partition.id flag on partition subcommands and add-owner.
 	for _, cfg := range []struct {
-		cmd                    *kingpin.CmdClause
-		partitionIDs           *string
-		memberlistJoin         *[]string
-		memberlistClusterLabel *string
-		memberlistBindPort     *int
-		verbose                *bool
+		cmd          *kingpin.CmdClause
+		partitionIDs *string
 	}{
-		{addPartitionCmd, &addCmd.partitionIDs, &addCmd.memberlistJoin, &addCmd.memberlistClusterLabel, &addCmd.memberlistBindPort, &addCmd.verbose},
-		{removePartitionCmd, &removeCmd.partitionIDs, &removeCmd.memberlistJoin, &removeCmd.memberlistClusterLabel, &removeCmd.memberlistBindPort, &removeCmd.verbose},
+		{addPartitionCmd, &addCmd.partitionIDs},
+		{removePartitionCmd, &removeCmd.partitionIDs},
+		{addOwnerCmdClause, &addOwnerCmd.partitionID},
 	} {
 		cfg.cmd.Flag("partition.id", "Comma-separated list of partition IDs (must be >= 0).").
 			Required().
 			StringVar(cfg.partitionIDs)
-
-		cfg.cmd.Flag("memberlist.join", "Address of a memberlist node to join. Can be specified multiple times.").
-			Required().
-			StringsVar(cfg.memberlistJoin)
-
-		cfg.cmd.Flag("memberlist.cluster-label", "The cluster label to use when joining the memberlist cluster.").
-			Default("").
-			StringVar(cfg.memberlistClusterLabel)
-
-		cfg.cmd.Flag("memberlist.bind-port", "Port to listen on for memberlist gossip messages.").
-			Default("7946").
-			IntVar(cfg.memberlistBindPort)
-
-		cfg.cmd.Flag("verbose", "Enable verbose logging.").
-			Default("false").
-			BoolVar(cfg.verbose)
 	}
 
-	// Register common flags on owner subcommands.
+	// Register owner.id flag on owner subcommands.
+	for _, cfg := range []struct {
+		cmd      *kingpin.CmdClause
+		ownerIDs *string
+	}{
+		{addOwnerCmdClause, &addOwnerCmd.ownerIDs},
+		{removeOwnerCmdClause, &removeOwnerCmd.ownerIDs},
+	} {
+		cfg.cmd.Flag("owner.id", "Comma-separated list of owner IDs (ingester instance names).").
+			Required().
+			StringVar(cfg.ownerIDs)
+	}
+
+	// Register memberlist and verbose flags on all subcommands.
 	for _, cfg := range []struct {
 		cmd                    *kingpin.CmdClause
-		ownerIDs               *string
 		memberlistJoin         *[]string
 		memberlistClusterLabel *string
 		memberlistBindPort     *int
 		verbose                *bool
 	}{
-		{addOwnerCmdClause, &addOwnerCmd.ownerIDs, &addOwnerCmd.memberlistJoin, &addOwnerCmd.memberlistClusterLabel, &addOwnerCmd.memberlistBindPort, &addOwnerCmd.verbose},
-		{removeOwnerCmdClause, &removeOwnerCmd.ownerIDs, &removeOwnerCmd.memberlistJoin, &removeOwnerCmd.memberlistClusterLabel, &removeOwnerCmd.memberlistBindPort, &removeOwnerCmd.verbose},
+		{addPartitionCmd, &addCmd.memberlistJoin, &addCmd.memberlistClusterLabel, &addCmd.memberlistBindPort, &addCmd.verbose},
+		{removePartitionCmd, &removeCmd.memberlistJoin, &removeCmd.memberlistClusterLabel, &removeCmd.memberlistBindPort, &removeCmd.verbose},
+		{addOwnerCmdClause, &addOwnerCmd.memberlistJoin, &addOwnerCmd.memberlistClusterLabel, &addOwnerCmd.memberlistBindPort, &addOwnerCmd.verbose},
+		{removeOwnerCmdClause, &removeOwnerCmd.memberlistJoin, &removeOwnerCmd.memberlistClusterLabel, &removeOwnerCmd.memberlistBindPort, &removeOwnerCmd.verbose},
 	} {
-		cfg.cmd.Flag("owner.id", "Comma-separated list of owner IDs (ingester instance names).").
-			Required().
-			StringVar(cfg.ownerIDs)
-
 		cfg.cmd.Flag("memberlist.join", "Address of a memberlist node to join. Can be specified multiple times.").
 			Required().
 			StringsVar(cfg.memberlistJoin)
@@ -345,10 +332,14 @@ func (c *AddOwnerCommand) run() error {
 		return err
 	}
 
-	if c.ownerPartition < 0 {
-		return fmt.Errorf("owner partition ID must be >= 0, got %d", c.ownerPartition)
+	partitionIDs, err := parsePartitionIDs(c.partitionID)
+	if err != nil {
+		return err
 	}
-	partitionID := int32(c.ownerPartition)
+	if len(partitionIDs) != 1 {
+		return fmt.Errorf("exactly one partition ID is required, got %d", len(partitionIDs))
+	}
+	partitionID := partitionIDs[0]
 
 	// Ask for confirmation.
 	message := fmt.Sprintf(`WARNING: This is a dangerous operation NOT intended for production systems.
@@ -559,6 +550,11 @@ func removePartitions(ctx context.Context, kvClient kv.Client, partitionIDs []in
 func addOwners(ctx context.Context, kvClient kv.Client, ownerIDs []string, state ring.OwnerState, partitionID int32) error {
 	return kvClient.CAS(ctx, ingester.PartitionRingKey, func(in interface{}) (out interface{}, retry bool, err error) {
 		ringDesc := ring.GetOrCreatePartitionRingDesc(in)
+
+		// Validate the target partition exists before making any changes.
+		if !ringDesc.HasPartition(partitionID) {
+			return nil, false, fmt.Errorf("partition %d does not exist in the ring", partitionID)
+		}
 
 		// First pass: validate ALL owners before making any changes.
 		for _, ownerID := range ownerIDs {

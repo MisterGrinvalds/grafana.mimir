@@ -1288,7 +1288,7 @@ Forcefully adds one or more owners (ingester instances) to the partition ring, a
 | Flag                         | Description                                                                                                 |
 | :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
 | `--owner.id`                 | Required. Comma-separated list of owner IDs (ingester instance names) to add.                               |
-| `--owner.partition`          | Required. The partition ID that the owner(s) will own (must be >= 0).                                       |
+| `--partition.id`             | Required. The partition ID that the owner(s) will own (must be >= 0). Exactly one ID may be specified.      |
 | `--memberlist.join`          | Required. Address of a memberlist node to join. Can be specified multiple times.                            |
 | `--memberlist.cluster-label` | The cluster label to use when joining the memberlist cluster.                                               |
 | `--memberlist.bind-port`     | Port to listen on for memberlist gossip messages. Default: `7946`. Use `0` to pick a random available port. |
@@ -1299,7 +1299,7 @@ Forcefully adds one or more owners (ingester instances) to the partition ring, a
 ```bash
 mimirtool partition-ring add-owner \
   --owner.id=ingester-zone-a-0 \
-  --owner.partition=0 \
+  --partition.id=0 \
   --memberlist.join=<ingester-pod-ip>:7946 \
   --memberlist.cluster-label=<cluster>.<namespace> \
   --memberlist.bind-port=0
